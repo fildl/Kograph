@@ -1,6 +1,6 @@
-# Kograph Local
+# Kograph
 
-Kograph Local is a **Streamlit-based dashboard** that visualizes your **Koreader reading statistics**, **Paper Books history**, and **Audio Books history**. It generates an interactive, filterable web interface with detailed analytics, timelines, and trends.
+Kograph is a **Streamlit-based dashboard** that visualizes your **Koreader reading statistics**, **Paper Books history**, and **Audio Books history**. It generates an interactive, filterable web interface with detailed analytics, timelines, and trends.
 
 ## Features
 
