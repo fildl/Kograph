@@ -31,6 +31,19 @@ class Visualizer:
         'kindle': '#00d2d3',   # Fallback
         'paper': '#feca57'     # Fallback
     }
+
+    # Language Colors
+    LANGUAGE_COLORS = {
+        'en': '#00d2d3', 'English': '#00d2d3',     # Cyan
+        'it': '#feca57', 'Italian': '#feca57',     # Yellow
+        'ja': '#ff9ff3', 'Japanese': '#ff9ff3',    # Pink
+        'fr': '#54a0ff', 'French': '#54a0ff',      # Blue
+        'es': '#5f27cd', 'Spanish': '#5f27cd',     # Purple
+        'de': '#ff6b6b', 'German': '#ff6b6b',      # Red
+        'ru': '#ff9f43', 'Russian': '#ff9f43',     # Orange
+        'zh': '#ee5253', 'Chinese': '#ee5253',     # Red-Orange
+        'other': '#8395a7', 'Other': '#8395a7'     # Grey
+    }
     
     # Standard Plot Dimensions
     PLOT_WIDTH = 1200
@@ -1535,3 +1548,134 @@ class Visualizer:
         )
         
         return fig
+
+    def plot_language_stats(self, year: int = None):
+        """
+        Donut chart (Yearly) or Stacked Area (All Time) for language distribution.
+        Based on NUMBER OF BOOKS.
+        """
+        df = self.data.copy()
+        
+        # Ensure language column exists
+        if 'language' not in df.columns:
+            return None
+            
+        # Clean language codes if needed
+        df['language'] = df['language'].fillna('other').astype(str).str.lower().str.strip()
+        
+        # Standardize language names for display
+        lang_map = {
+            'en': 'English', 'english': 'English',
+            'it': 'Italian', 'italian': 'Italian',
+            'ja': 'Japanese', 'japanese': 'Japanese',
+            'fr': 'French', 'french': 'French',
+            'es': 'Spanish', 'spanish': 'Spanish',
+            'de': 'German', 'german': 'German',
+            'ru': 'Russian', 'russian': 'Russian',
+            'zh': 'Chinese', 'chinese': 'Chinese'
+        }
+        df['language_label'] = df['language'].map(lang_map).fillna(df['language'].str.title())
+        
+        if year:
+            # --- Yearly View: Donut Chart ---
+            df = df[df['year'] == year]
+            if df.empty: return None
+            
+            # Aggregate by language (Count unique books)
+            lang_stats = df.groupby('language_label')['id_book'].nunique().reset_index()
+            lang_stats.rename(columns={'id_book': 'count'}, inplace=True)
+            
+            total_books = lang_stats['count'].sum()
+            if total_books == 0: return None
+            
+            lang_stats['percentage'] = lang_stats['count'] / total_books
+            
+            fig = px.pie(
+                lang_stats, 
+                values='count', 
+                names='language_label',
+                title=f'Books Read by Language in {year}',
+                hole=0.4, # Donut
+                color='language_label',
+                color_discrete_map=self.LANGUAGE_COLORS
+            )
+            
+            fig.update_layout(
+                paper_bgcolor=self.THEME_COLORS['paper'],
+                plot_bgcolor=self.THEME_COLORS['background'],
+                font_color=self.THEME_COLORS['text'],
+                title_x=0.5,
+                title_xanchor='center',
+                width=self.PLOT_WIDTH,
+                height=500, 
+                margin=dict(t=80, l=50, r=50, b=50),
+                showlegend=True
+            )
+            
+            fig.update_traces(
+                textinfo='percent+label',
+                textfont_size=14,
+                hovertemplate="<b>%{label}</b><br>Books: <b>%{value}</b><br>Share: <b>%{percent:.1%}</b><extra></extra>",
+                texttemplate="%{percent:.1%} %{label}",
+                marker=dict(line=dict(color=self.THEME_COLORS['background'], width=2))
+            )
+            
+            return fig
+            
+        else:
+            # --- All Time View: 100% Stacked Area ---
+            # Aggregate by Year and Language (Count unique books)
+            if 'start_datetime' in df.columns:
+                df['year_dt'] = df['start_datetime'].dt.to_period('Y').dt.start_time
+            elif 'date' in df.columns:
+                df['start_datetime'] = pd.to_datetime(df['date'])
+                df['year_dt'] = df['start_datetime'].dt.to_period('Y').dt.start_time
+            else:
+                return None
+            
+            # Group by year and language, counting unique books
+            yearly = df.groupby(['year_dt', 'language_label'])['id_book'].nunique().reset_index()
+            yearly.rename(columns={'id_book': 'count'}, inplace=True)
+            
+            if yearly.empty: return None
+            
+            fig = px.area(
+                yearly, 
+                x='year_dt', 
+                y='count', 
+                color='language_label',
+                groupnorm='percent', # Creates the 100% Stacked Area
+                title='Language Distribution Over Time (Books Read)',
+                labels={'count': 'Books', 'year_dt': 'Year', 'language_label': 'Language'},
+                color_discrete_map=self.LANGUAGE_COLORS
+            )
+            
+            fig.update_layout(
+                paper_bgcolor=self.THEME_COLORS['paper'],
+                plot_bgcolor=self.THEME_COLORS['background'],
+                font_color=self.THEME_COLORS['text'],
+                title_x=0.5,
+                title_xanchor='center',
+                width=self.PLOT_WIDTH,
+                height=self.PLOT_HEIGHT,
+                margin=dict(t=80, l=50, r=50, b=50),
+                yaxis=dict(
+                    ticksuffix='%', 
+                    range=[0, 100],
+                    gridcolor=self.THEME_COLORS['grid'],
+                    title="Share of Books"
+                ),
+                xaxis=dict(
+                    gridcolor=self.THEME_COLORS['grid'],
+                    title=None
+                ),
+                hovermode='x unified'
+            )
+            
+            fig.update_traces(
+                line=dict(width=0),
+                hovertemplate="<b>%{y}</b> books<extra></extra>", # Shows count in unified text
+                hoverlabel=dict(bgcolor="black")
+            )
+            
+            return fig

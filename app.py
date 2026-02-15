@@ -224,15 +224,16 @@ st.markdown("---")
 plot_year = int(selected_year) if selected_year != "All Time" else None
 
 # --- 1. Book Timeline ---
-st.subheader("Book Timeline")
-try:
-    fig_timeline_plot = viz_timeline.plot_book_timeline(year=plot_year)
-    if fig_timeline_plot:
-        st.plotly_chart(fig_timeline_plot, use_container_width=True)
-    else:
-         st.info("No timeline data available.")
-except Exception as e:
-    st.error(f"Could not render Timeline: {e}")
+if selected_year != "All Time":
+    st.subheader("Book Timeline")
+    try:
+        fig_timeline_plot = viz_timeline.plot_book_timeline(year=plot_year)
+        if fig_timeline_plot:
+            st.plotly_chart(fig_timeline_plot, use_container_width=True)
+        else:
+             st.info("No timeline data available.")
+    except Exception as e:
+        st.error(f"Could not render Timeline: {e}")
 
 # --- 2. Activity Patterns ---
 st.subheader("Activity Patterns")
@@ -330,7 +331,18 @@ try:
 except Exception as e:
     st.error(f"Could not render Books Completed: {e}")
 
-# --- 7. Cumulative Pages ---
+# --- 7. Language Stats ---
+st.subheader("Languages")
+try:
+    fig_lang = viz.plot_language_stats(year=plot_year)
+    if fig_lang:
+        st.plotly_chart(fig_lang, use_container_width=True)
+    else:
+        st.info("No language data available.")
+except Exception as e:
+    st.error(f"Could not render Language Stats: {e}")
+
+# --- 8. Cumulative Pages ---
 st.subheader("Cumulative Pages")
 try:
     fig_pages = viz.plot_cumulative_pages(year=plot_year)
