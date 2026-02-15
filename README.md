@@ -1,13 +1,13 @@
-# Kograph Local
+# Kograph
 
-Kograph Local is a **Streamlit-based dashboard** that visualizes your **Koreader reading statistics**, **Paper Books history**, and **Audio Books history**. It generates an interactive, filterable web interface with detailed analytics, timelines, and trends.
+Kograph is a **Streamlit-based dashboard** that visualizes your **Koreader reading statistics**, **Paper Books history**, and **Audio Books history**. It generates an interactive, filterable web interface with detailed analytics, timelines, and trends.
 
 ## Features
 
 -   **Interactive Dashboard**: Filter data by Year and Format (Ebook, Paperback, Audiobook).
 -   **Multi-Source Data**:
     -   **Koreader**: Automatically syncs with `data/statistics.sqlite3` from your connected device.
-    -   **Paper Books**: Integrates `data/paper_books.csv` to track physical reading history.
+    -   **Library (Numbers)**: Integrates a `.numbers` file for **Paper Books** history and metadata (Country, Purchase Date).
     -   **Audio Books**: Integrates `data/audio_books.csv` to track audiobook history.
 -   **Rich Visualizations** (Plotly):
     -   **Book Timeline**: Gantt-style view of all books read, with accurate start/end dates.
@@ -39,11 +39,11 @@ Kograph Local is a **Streamlit-based dashboard** that visualizes your **Koreader
 
 2.  **Data Setup**:
     -   **Kindle**: Connect your Kindle. The script looks for `statistics.sqlite3` in `/Volumes/Kindle/koreader/settings/` and copies it to `data/`.
-    -   **Paper Books**: Create `data/paper_books.csv` with the following columns:
-        | title | authors | pages | start_date | end_date | language |
-        | --- | --- | --- | --- | --- | --- |
-        | The Great Gatsby | F. Scott Fitzgerald | 180 | 2026-01-01 | 2024-01-14 | en |
-        | Foundation and Earth | Isaac Asimov | 259 | 2026-01-15 | 2024-01-22 | en |
+    -   **Kindle**: Connect your Kindle. The script looks for `statistics.sqlite3` in `/Volumes/Kindle/koreader/settings/` and copies it to `data/`.
+    -   **Library (Numbers)**: A `.numbers` file containing your full library.
+        -   **Paper Books**: Rows with `format` as 'Hardcover' or 'Paperback' are imported as reading sessions.
+            -   Required columns: `title`, `author`, `pages`, `start`, `finish`.
+        -   **Metadata**: Enriches all books with `nationality` and `purchase`.
     -   **Audio Books**: Create `data/audio_books.csv` (optional) to track listening sessions.
         -   **Format**: `progress` should be cumulative time listened (H:MM).
         
@@ -60,6 +60,11 @@ Kograph Local is a **Streamlit-based dashboard** that visualizes your **Koreader
         | --- | --- | --- |
         | 2024-01-01 00:00:00 | 2024-06-01 00:00:00 | 60 |
         | 2024-06-02 00:00:00 | | -120 |
+
+    -   **Library Metadata (Optional)**: Can integrate a `.numbers` file (e.g., from Apple Numbers) to enrich books with `Country` (Author's nationality) and `Purchase Date`.
+        -   **Format**: Create a Numbers file with columns: `title`, `author`, `nationality`, `purchase`.
+        -   **Usage**: Configure the path in `app.py` (marked as optional integration).
+        -   **Visualizations**: Adds "Books by Country" and "Time from Purchase to Read" charts.
 
 ## Usage
 
