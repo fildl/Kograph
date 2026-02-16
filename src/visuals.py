@@ -382,9 +382,14 @@ class Visualizer:
         if df.empty:
             return None
 
-        # Exclude Paperback
+        # Exclude Paperback AND Manual Ebooks (Numbers)
         if 'format' in df.columns:
+            # 1. Remove Paperbacks
             df = df[df['format'] != 'paperback']
+            
+            # 2. Remove Ebooks that are from Numbers
+            if 'data_source' in df.columns:
+                df = df[~((df['format'] == 'ebook') & (df['data_source'] == 'numbers'))]
 
         # Group by hour AND format
         # We need to ensure we have all hours for all present formats?
@@ -734,9 +739,14 @@ class Visualizer:
             
         title = 'Streak Calendar'
 
-        # Exclude Paperback data
+        # Exclude Paperback data AND Manual Ebooks (Numbers)
         if 'format' in df.columns:
+            # 1. Remove Paperbacks
             df = df[df['format'] != 'paperback']
+            
+            # 2. Remove Ebooks that are from Numbers (Keep only Kindle/Device tracked)
+            if 'data_source' in df.columns:
+                df = df[~((df['format'] == 'ebook') & (df['data_source'] == 'numbers'))]
 
         if df.empty:
             return None
@@ -1427,6 +1437,7 @@ class Visualizer:
         # 1. Prepare Daily Data (Total minutes per day and format)
         daily = df.groupby(['date', 'format'])['duration'].sum().reset_index()
         daily['minutes'] = daily['duration'] / 60
+        daily['hours'] = daily['duration'] / 3600
         daily['date'] = pd.to_datetime(daily['date'])
         daily['day_of_week'] = daily['date'].dt.dayofweek
         daily['month'] = daily['date'].dt.month
@@ -1452,35 +1463,33 @@ class Visualizer:
         
         import calendar
         
-        # --- Subplot 2: Monthly Pattern ---
+        # --- Subplot 2: Monthly Reading Pattern ---
         if year:
-            # Single Year: Absolute Minutes per Month by Format (No Averaging needed over time)
-            # Just Sum.
-            monthly_data = daily.groupby(['month', 'format'])['minutes'].sum().reset_index()
-            y_col = 'minutes'
-            y_label_month = 'Total Minutes'
-            hover_template_month = "<b>%{x}</b><br>Format: %{customdata[0]}<br>Total: %{y:.0f} min<extra></extra>"
+            # Single Year: Absolute Hours per Month by Format
+            monthly_data = daily.groupby(['month', 'format'])['hours'].sum().reset_index()
+            y_col = 'hours'
+            y_label_month = 'Total Hours'
+            hover_template_month = "<b>%{x}</b><br>Format: %{customdata[0]}<br>Total: %{y:.1f} h<extra></extra>"
         else:
-            # All Time: Average Minutes per Month by Format
-            # Logic: Sum totals per month-format, then divide by number of times that month occurs.
+            # All Time: Average Hours per Month by Format
             
             # Count occurrences of each month in full range
             month_counts = full_date_range.month.value_counts().sort_index()
             
             # Sum per [month, format]
-            monthly_sums = daily.groupby(['month', 'format'])['minutes'].sum().reset_index()
+            monthly_sums = daily.groupby(['month', 'format'])['hours'].sum().reset_index()
             
             # Normalize
             def normalize_month(row):
                 count = month_counts.get(row['month'], 1)
-                return row['minutes'] / count if count > 0 else 0
+                return row['hours'] / count if count > 0 else 0
                 
-            monthly_sums['avg_minutes'] = monthly_sums.apply(normalize_month, axis=1)
+            monthly_sums['avg_hours'] = monthly_sums.apply(normalize_month, axis=1)
             monthly_data = monthly_sums
             
-            y_col = 'avg_minutes'
-            y_label_month = 'Avg Minutes'
-            hover_template_month = "<b>%{x}</b><br>Format: %{customdata[0]}<br>Avg: %{y:.1f} min<extra></extra>"
+            y_col = 'avg_hours'
+            y_label_month = 'Avg Hours'
+            hover_template_month = "<b>%{x}</b><br>Format: %{customdata[0]}<br>Avg: %{y:.1f} h<extra></extra>"
 
         monthly_data['Month'] = monthly_data['month'].apply(lambda x: calendar.month_abbr[x])
 

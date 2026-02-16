@@ -49,6 +49,7 @@ class DataProcessor:
             
         # Add format column
         self.merged_df['format'] = 'ebook'
+        self.merged_df['data_source'] = 'kindle'
         
         # Add pages_read column (1 row = 1 page read event)
         self.merged_df['pages_read'] = 1
@@ -625,6 +626,7 @@ class DataProcessor:
                             'pages': pages,
                             'language': row.get('language', 'en'),
                             'format': app_format, 
+                            'data_source': 'numbers', 
                             'date': session_time.date(),
                             'year': session_time.year,
                             'month': session_time.month,
