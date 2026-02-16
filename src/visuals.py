@@ -184,8 +184,15 @@ class Visualizer:
         title = 'Reading Calendar'
         
         # Exclude Paperback data (synthetic daily sessions don't reflect actual habits)
+        # And exclude manual Ebooks (negative IDs) as they are synthetic too.
         if 'format' in df.columns:
+            # Drop Paperback
             df = df[df['format'] != 'paperback']
+
+        # Exclude manual ebooks (negative id_book)
+        if 'id_book' in df.columns and 'format' in df.columns:
+             mask = (df['format'] == 'ebook') & (df['id_book'] < 0)
+             df = df.loc[~mask]
 
         if df.empty:
             return None
@@ -439,7 +446,7 @@ class Visualizer:
 
     def plot_reading_distribution(self, year: int = None):
         """
-        Histogram of daily reading minutes, split by format.
+        Histogram of daily reading minutes (Aggregated across formats).
         """
         df = self.data.copy()
         
@@ -455,37 +462,41 @@ class Visualizer:
         if df.empty:
             return None
 
-        # Group by date AND format
-        daily = df.groupby(['date', 'format'])['duration'].sum().reset_index()
+        # Group by date ONLY (Aggregate formats)
+        daily = df.groupby('date')['duration'].sum().reset_index()
         daily['minutes'] = daily['duration'] / 60
         
         if daily.empty:
             return None
 
+        # Calculate stats
+        mean_val = daily['minutes'].mean()
+        median_val = daily['minutes'].median()
+
         # Create Histogram
         fig = px.histogram(
             daily, 
             x='minutes', 
-            color='format',
             nbins=30, # Moderate bin count
             title=title,
-            labels={'minutes': 'Daily Minutes', 'format': 'Format'},
-            color_discrete_map=self.FORMAT_COLORS
+            labels={'minutes': 'Daily Minutes'},
+            color_discrete_sequence=[self.THEME_COLORS['primary']]
         )
+        
+        # Add Mean Line
+        fig.add_vline(x=mean_val, line_width=2, line_dash="dash", line_color=self.THEME_COLORS['secondary'])
+        fig.add_annotation(x=mean_val, y=0.95, yref='paper', text=f"Mean: {mean_val:.0f}m", showarrow=False, xanchor='left', font=dict(color=self.THEME_COLORS['secondary']))
+        
+        # Add Median Line
+        fig.add_vline(x=median_val, line_width=2, line_dash="dot", line_color=self.THEME_COLORS['accent'])
+        fig.add_annotation(x=median_val, y=0.85, yref='paper', text=f"Median: {median_val:.0f}m", showarrow=False, xanchor='left', font=dict(color=self.THEME_COLORS['accent']))
         
         # Styling
         fig.update_layout(
             paper_bgcolor=self.THEME_COLORS['paper'],
             plot_bgcolor=self.THEME_COLORS['background'],
             font_color=self.THEME_COLORS['text'],
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            ),
+            showlegend=False,
             title_x=0.5,
             title_xanchor='center',
             title_y=0.95,
@@ -502,12 +513,13 @@ class Visualizer:
                 gridcolor=self.THEME_COLORS['grid'],
                 showgrid=True
             ),
-            barmode='stack'
+            bargap=0.1
         )
         
         fig.update_traces(
             marker_line_width=0,
-            hoverlabel=dict(bgcolor="black")
+            hoverlabel=dict(bgcolor="black"),
+            hovertemplate="<b>%{x}</b> min<br>Days: %{y}<extra></extra>"
         )
         
         return fig
