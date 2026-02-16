@@ -182,10 +182,9 @@ else:
 daily_average = total_minutes / days_span if days_span > 0 else 0
 
 # Create two rows of metrics
-c1, c2, c3 = st.columns(3)
+c1, c2 = st.columns(2)
 c1.metric("Total Hours", f"{total_hours:.1f}h")
 c2.metric("Books Read", f"{books_read}")
-c3.metric("Sessions", f"{total_sessions}")
 
 c4, c5, c6 = st.columns(3)
 c4.metric("Daily Average", f"{daily_average:.0f}m")

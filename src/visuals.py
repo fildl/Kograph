@@ -16,29 +16,30 @@ class Visualizer:
         'paper': '#1c1c1c',
         'text': '#e0e0e0',
         'grid': '#333333',
-        'primary': '#00d2d3',    # Cyan
-        'secondary': '#ff9ff3',  # Pink
-        'accent': '#feca57',     # Yellow
+        'primary': '#ef476f',    # Red/Pink (Ebook)
+        'secondary': '#06d6a0',  # Green (Audiobook)
+        'accent': '#ffd166',     # Yellow (Paperback)
+        'grouped': '#118ab2',    # Blue (Aggregated Data)
         'subtext': '#aaaaaa',
-        'gradient': ['#00d2d3', '#54a0ff', '#5f27cd']
+        'gradient': ['#ef476f', '#118ab2', '#06d6a0']
     }
 
     # Format Colors
     FORMAT_COLORS = {
-        'ebook': '#00d2d3',    # Cyan
-        'paperback': '#feca57', # Yellow
-        'audiobook': '#ff9ff3', # Pink
-        'kindle': '#00d2d3',   # Fallback
-        'paper': '#feca57'     # Fallback
+        'ebook': '#ef476f',     # Red/Pink
+        'paperback': '#ffd166', # Yellow
+        'audiobook': '#06d6a0', # Green
+        'kindle': '#ef476f',    # Fallback
+        'paper': '#ffd166'      # Fallback
     }
 
     # Language Colors
     LANGUAGE_COLORS = {
-        'en': '#00d2d3', 'English': '#00d2d3',     # Cyan
-        'it': '#feca57', 'Italian': '#feca57',     # Yellow
-        'ja': '#ff9ff3', 'Japanese': '#ff9ff3',    # Pink
-        'fr': '#54a0ff', 'French': '#54a0ff',      # Blue
-        'es': '#5f27cd', 'Spanish': '#5f27cd',     # Purple
+        'en': '#118ab2', 'English': '#118ab2',     # Blue
+        'it': '#ffd166', 'Italian': '#ffd166',     # Yellow
+        'ja': '#ef476f', 'Japanese': '#ef476f',    # Red/Pink
+        'fr': '#06d6a0', 'French': '#06d6a0',      # Green
+        'es': '#5f27cd', 'Spanish': '#5f27cd',     # Purple (Keep distinctive)
         'de': '#ff6b6b', 'German': '#ff6b6b',      # Red
         'ru': '#ff9f43', 'Russian': '#ff9f43',     # Orange
         'zh': '#ee5253', 'Chinese': '#ee5253',     # Red-Orange
@@ -220,6 +221,9 @@ class Visualizer:
         # Find global max day for highlighting
         max_day_date = daily.loc[daily['minutes'].idxmax(), 'date'] if not daily.empty else None
 
+        # Identify the last month with data to attach the color scale
+        last_active_month = int(df['month'].max()) if 'month' in df.columns and not df.empty else 12
+
         # Iterate through months
         for month in range(1, 13):
             row = (month - 1) // 4 + 1
@@ -255,8 +259,19 @@ class Visualizer:
                 axis=1
             )
             
-            # Show legend (colorbar) only on the last chart (Dec)
-            show_scale = (month == 12)
+            # Find last month with data to show scale
+            last_active_month = df['month'].max() if not df.empty else 12
+            
+            # Show legend (colorbar) on the last month that has data
+            # If data ends in Oct, show on Oct. If full year, show on Dec.
+            # If a month has no data, active_df is empty so the trace coupled to show_scale won't be added.
+            # We must ensure we attach the scale to a month that HAS active data.
+            # So last_active_month must be derived from rows where duration > 0.
+            
+            # Calculate this ONCE outside loop would be better but let's do it inline for min change
+            # Optimization: Calculate outside
+            
+            show_scale = (month == last_active_month)
             
             # Split into Active (Reading) and Inactive (Empty)
             active_df = month_df[month_df['minutes'] > 0].copy()
@@ -480,7 +495,7 @@ class Visualizer:
             nbins=30, # Moderate bin count
             title=title,
             labels={'minutes': 'Daily Minutes'},
-            color_discrete_sequence=[self.THEME_COLORS['primary']]
+            color_discrete_sequence=[self.THEME_COLORS['grouped']]
         )
         
         # Add Mean Line
@@ -567,6 +582,11 @@ class Visualizer:
         # Exclude Paperback data
         if 'format' in df.columns:
             df = df[df['format'] != 'paperback']
+
+        # Exclude manual ebooks (negative id_book)
+        if 'id_book' in df.columns and 'format' in df.columns:
+             mask = (df['format'] == 'ebook') & (df['id_book'] < 0)
+             df = df.loc[~mask]
 
         streaks = self._calculate_streaks(df)
         
