@@ -24,8 +24,8 @@ This document lists all available plots in the Kograph dashboard, detailing thei
 
 *   **Reading Calendar** (`plot_reading_calendar`)
     *   **Visibility**: Specific Year Only
-    *   **Formats**: Ebook, Audiobook (Excludes Paperback)
-    *   **Description**: 3x4 Grid showing daily reading activity heat map. Excludes Manual Ebooks.
+    *   **Formats**: Ebook, Audiobook (Device Tracked only)
+    *   **Description**: 3x4 Grid showing daily reading activity heat map. Excludes Paperback and Manual Imports from Numbers.
 
 *   **Reading Patterns (Daily)** (`plot_reading_patterns`, Subplot 1)
     *   **Visibility**: Always Visible
@@ -39,13 +39,13 @@ This document lists all available plots in the Kograph dashboard, detailing thei
 
 *   **Streak Histogram** (`plot_streaks`)
     *   **Visibility**: Always Visible
-    *   **Formats**: Ebook, Audiobook (Excludes Paperback)
-    *   **Description**: Distribution of reading streak lengths. Excludes Manual Ebooks.
+    *   **Formats**: Ebook, Audiobook (Device Tracked only)
+    *   **Description**: Distribution of reading streak lengths. Excludes Paperback and Manual Imports from Numbers.
 
 *   **Streak Calendar** (`plot_streak_calendar`)
     *   **Visibility**: Specific Year Only
-    *   **Formats**: Ebook, Audiobook (Excludes Paperback)
-    *   **Description**: 3x4 Grid visualizing daily streak status. Excludes Manual Ebooks.
+    *   **Formats**: Ebook, Audiobook (Device Tracked only)
+    *   **Description**: 3x4 Grid visualizing daily streak status. Excludes Paperback and Manual Imports from Numbers.
 
 *   **Books Completed** (`plot_books_completed`)
     *   **Visibility**: Always Visible

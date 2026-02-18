@@ -184,13 +184,20 @@ class Visualizer:
 
         title = 'Reading Calendar'
         
-        # Exclude Paperback data (synthetic daily sessions don't reflect actual habits)
-        # And exclude manual Ebooks (negative IDs) as they are synthetic too.
+        # Exclude Paperback AND Manual Audiobooks/Ebooks (Numbers)
+        # We need daily data. Manual imports (Numbers) are synthetic averages or single sessions.
+        
+        # 1. Remove Paperbacks
         if 'format' in df.columns:
-            # Drop Paperback
             df = df[df['format'] != 'paperback']
 
-        # Exclude manual ebooks (negative id_book)
+        # 2. Remove Books from Numbers (Simple Audiobooks included)
+        # This covers Ebooks AND Audiobooks from Numbers.
+        # Detailed Audiobooks (CSV) do NOT have data_source='numbers' (usually null or other)
+        if 'data_source' in df.columns:
+             df = df[df['data_source'] != 'numbers']
+
+        # Exclude manual ebooks (negative id_book) - Fallback if data_source missing
         if 'id_book' in df.columns and 'format' in df.columns:
              mask = (df['format'] == 'ebook') & (df['id_book'] < 0)
              df = df.loc[~mask]
@@ -584,9 +591,13 @@ class Visualizer:
         
         title = 'Reading Streaks'
         
-        # Exclude Paperback data
+        # Exclude Paperback
         if 'format' in df.columns:
             df = df[df['format'] != 'paperback']
+
+        # Exclude Manual Data (Numbers) - Simple Audiobooks/Ebooks
+        if 'data_source' in df.columns:
+             df = df[df['data_source'] != 'numbers']
 
         # Exclude manual ebooks (negative id_book)
         if 'id_book' in df.columns and 'format' in df.columns:
@@ -739,14 +750,14 @@ class Visualizer:
             
         title = 'Streak Calendar'
 
-        # Exclude Paperback data AND Manual Ebooks (Numbers)
+        # Exclude Paperback AND Manual Data (Numbers)
+        # 1. Remove Paperbacks
         if 'format' in df.columns:
-            # 1. Remove Paperbacks
             df = df[df['format'] != 'paperback']
             
-            # 2. Remove Ebooks that are from Numbers (Keep only Kindle/Device tracked)
-            if 'data_source' in df.columns:
-                df = df[~((df['format'] == 'ebook') & (df['data_source'] == 'numbers'))]
+        # 2. Remove Books from Numbers (Simple Audiobooks/Ebooks)
+        if 'data_source' in df.columns:
+            df = df[df['data_source'] != 'numbers']
 
         if df.empty:
             return None
@@ -1938,7 +1949,7 @@ class Visualizer:
             books_acquired['year'] = books_acquired['date'].dt.year
             
             read_yearly = books_read.groupby('year').size().reset_index(name='count')
-            read_yearly['type'] = 'Books Read'
+            read_yearly['type'] = 'Read'
             
             # Group acquired by year AND type
             books_acquired['year'] = books_acquired['date'].dt.year
@@ -1982,10 +1993,10 @@ class Visualizer:
                 title='Acquisition vs reading Ratio Over Time',
                 labels={'count': 'Books', 'year_date': 'Year', 'type': 'Category'},
                 color_discrete_map={
-                    'Books Read': self.THEME_COLORS['secondary'],
-                    'Books Purchased': self.THEME_COLORS['accent'],
-                    'Books Subscription': '#8338ec',
-                    'Books Borrowed': '#3a86ff'
+                    'Read': self.THEME_COLORS['secondary'],
+                    'Purchased': self.THEME_COLORS['accent'],
+                    'Subscription': '#8338ec',
+                    'Borrowed': '#3a86ff'
                 }
             )
             
@@ -2160,8 +2171,10 @@ class Visualizer:
                  fig.data[-1].line.color = self.THEME_COLORS['subtext']
                  fig.data[-1].line.dash = 'dash'
                  fig.data[-1].showlegend = False
-                 unit_label = "hours" if metric == 'hours' else "days"
-                 fig.data[-1].hovertemplate = f"<b>Trend</b><br>%{{x}} pages<br>%{{y:.1f}} {unit_label}<extra></extra>"
+                 # unit_label = "hours" if metric == 'hours' else "days"
+                 # fig.data[-1].hovertemplate = f"<b>Trend</b><br>%{{x}} pages<br>%{{y:.1f}} {unit_label}<extra></extra>"
+                 fig.data[-1].hoverinfo = 'skip'
+                 fig.data[-1].hovertemplate = None
              except Exception:
                  pass # statsmodels might not be installed
 
