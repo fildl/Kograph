@@ -394,9 +394,13 @@ class Visualizer:
             # 1. Remove Paperbacks
             df = df[df['format'] != 'paperback']
             
-            # 2. Remove Ebooks that are from Numbers
+            # 2. Remove Ebooks AND Audiobooks that are from Numbers
+            # Numbers data (manual entry) often has default 12:00 PM time, which skews the distribution.
             if 'data_source' in df.columns:
-                df = df[~((df['format'] == 'ebook') & (df['data_source'] == 'numbers'))]
+                 # Exclude ANY format if source is 'numbers' for this plot? 
+                 # Or specifically exclude Ebook and Audiobook from Numbers.
+                 # Let's target both to be safe.
+                 df = df[~((df['format'].isin(['ebook', 'audiobook'])) & (df['data_source'] == 'numbers'))]
 
         # Group by hour AND format
         # We need to ensure we have all hours for all present formats?
