@@ -79,7 +79,7 @@ class Visualizer:
 
     def plot_weekly_activity(self, year: int = None):
         """
-        Stacked Bar chart of total reading hours per week, split by format.
+        Stacked Bar chart of total reading hours per week (or month for >5 years), split by format.
         Args:
             year (int, optional): Filter data for a specific year.
         """
@@ -89,21 +89,34 @@ class Visualizer:
         if year:
             df = df[df['year'] == year]
         
-        title = 'Weekly Reading Activity'
-
         if df.empty:
             print(f"Warning: No data found for year {year}")
             return None
 
-        # Ensure week column exists
-        if 'start_datetime' in df.columns:
-            df['week'] = df['start_datetime'].dt.to_period('W').dt.start_time
-        elif 'date' in df.columns:
-            df['start_datetime'] = pd.to_datetime(df['date'])
-            df['week'] = df['start_datetime'].dt.to_period('W').dt.start_time
+        # Check year span to decide on grouping
+        min_year = df['year'].min()
+        max_year = df['year'].max()
+        year_span = max_year - min_year
         
-        # Aggregate duration and book titles per week and format
-        aggregated = df.groupby(['week', 'format']).agg({
+        if year_span > 5:
+            period = 'M'
+            title = 'Monthly Reading Activity'
+            x_label = 'Month'
+        else:
+            period = 'W'
+            title = 'Weekly Reading Activity'
+            x_label = 'Week'
+
+        # Ensure datetime column exists
+        if 'start_datetime' not in df.columns:
+             if 'date' in df.columns:
+                df['start_datetime'] = pd.to_datetime(df['date'])
+        
+        # Create period column
+        df['period_date'] = df['start_datetime'].dt.to_period(period).dt.start_time
+        
+        # Aggregate duration and book titles per period and format
+        aggregated = df.groupby(['period_date', 'format']).agg({
             'duration': 'sum',
             'title': lambda x: '<br>'.join(sorted(list(set(x)))[:5]) + ('...' if len(set(x)) > 5 else '')
         }).reset_index()
@@ -119,11 +132,11 @@ class Visualizer:
         # Create Stacked Bar Plot
         fig = px.bar(
             aggregated, 
-            x='week', 
+            x='period_date', 
             y='hours',
             color='format', # Stack by format
             title=title,
-            labels={'hours': 'Hours Read', 'week': 'Week', 'format': 'Format'},
+            labels={'hours': 'Hours Read', 'period_date': x_label, 'format': 'Format'},
             custom_data=['formatted_time', 'books_list', 'format'],
             color_discrete_map=self.FORMAT_COLORS # Apply explicit colors
         )
@@ -1624,12 +1637,40 @@ class Visualizer:
         
         return fig
 
-    def plot_language_stats(self, year: int = None):
+    def plot_language_stats(self, year: int = None, external_data: pd.DataFrame = None):
         """
         Donut chart (Yearly) or Stacked Area (All Time) for language distribution.
         Based on NUMBER OF BOOKS.
         """
-        df = self.data.copy()
+        df = None
+        
+        # Prefer external data (Numbers) if available
+        if external_data is not None and not external_data.empty:
+            ext_df = external_data.copy()
+            
+            # Normalize column names: Use end_date as primary date, else start_date
+            if 'end_date' in ext_df.columns and 'start_date' in ext_df.columns:
+                ext_df['date'] = ext_df['end_date'].combine_first(ext_df['start_date'])
+            elif 'end_date' in ext_df.columns:
+                ext_df['date'] = ext_df['end_date']
+            elif 'start_date' in ext_df.columns:
+                ext_df['date'] = ext_df['start_date']
+                
+            # Create year column if missing
+            if 'year' not in ext_df.columns and 'date' in ext_df.columns:
+                ext_df['date'] = pd.to_datetime(ext_df['date'])
+                ext_df['year'] = ext_df['date'].dt.year
+
+            # Check for language column or rename 'lingua'
+            if 'language' in ext_df.columns:
+                df = ext_df
+            elif 'lingua' in ext_df.columns:
+                ext_df['language'] = ext_df['lingua']
+                df = ext_df
+                
+        # Fallback to internal data if external yielded no valid df (or missing language)
+        if df is None:
+            df = self.data.copy()
         
         # Ensure language column exists
         if 'language' not in df.columns:
@@ -1657,8 +1698,9 @@ class Visualizer:
             if df.empty: return None
             
             # Aggregate by language (Count unique books)
-            lang_stats = df.groupby('language_label')['id_book'].nunique().reset_index()
-            lang_stats.rename(columns={'id_book': 'count'}, inplace=True)
+            count_col = 'id_book' if 'id_book' in df.columns else 'title'
+            lang_stats = df.groupby('language_label')[count_col].nunique().reset_index()
+            lang_stats.rename(columns={count_col: 'count'}, inplace=True)
             
             total_books = lang_stats['count'].sum()
             if total_books == 0: return None
@@ -1709,8 +1751,9 @@ class Visualizer:
                 return None
             
             # Group by year and language, counting unique books
-            yearly = df.groupby(['year_dt', 'language_label'])['id_book'].nunique().reset_index()
-            yearly.rename(columns={'id_book': 'count'}, inplace=True)
+            count_col = 'id_book' if 'id_book' in df.columns else 'title'
+            yearly = df.groupby(['year_dt', 'language_label'])[count_col].nunique().reset_index()
+            yearly.rename(columns={count_col: 'count'}, inplace=True)
             
             if yearly.empty: return None
             

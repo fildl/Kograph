@@ -155,7 +155,13 @@ st.markdown(f"Displaying data for: {filter_status}")
 total_duration_seconds = filtered_combined['duration'].sum()
 hours = int(total_duration_seconds // 3600)
 minutes = int((total_duration_seconds % 3600) // 60)
-total_time_str = f"{hours}h {minutes}m"
+
+if total_duration_seconds > 86400:  # > 24 hours
+    days = int(total_duration_seconds // 86400)
+    remaining_hours = int((total_duration_seconds % 86400) // 3600)
+    total_time_str = f"{days}d {remaining_hours}h"
+else:
+    total_time_str = f"{hours}h {minutes}m"
 
 books_read = filtered_combined['id_book'].nunique()
 
@@ -175,7 +181,23 @@ else:
 daily_average = total_minutes / days_span if days_span > 0 else 0
 
 # Streak calculations
-streaks = viz._calculate_streaks(filtered_combined)
+# Apply filters to match "Reading Streaks" plot logic (exclude manual/paperback)
+streak_df = filtered_combined.copy()
+
+# 1. Exclude Paperback
+if 'format' in streak_df.columns:
+    streak_df = streak_df[streak_df['format'] != 'paperback']
+
+# 2. Exclude Manual Data (Numbers)
+if 'data_source' in streak_df.columns:
+    streak_df = streak_df[streak_df['data_source'] != 'numbers']
+
+# 3. Exclude manual ebooks (negative id_book)
+if 'id_book' in streak_df.columns and 'format' in streak_df.columns:
+    mask = (streak_df['format'] == 'ebook') & (streak_df['id_book'] < 0)
+    streak_df = streak_df.loc[~mask]
+
+streaks = viz._calculate_streaks(streak_df)
 longest_streak = max(streaks) if streaks else 0
 current_streak = streaks[-1] if streaks else 0
 
@@ -215,8 +237,16 @@ c3.metric("Total Time", total_time_str)
 # Row 2: Habits & Streaks
 c4, c5, c6 = st.columns(3)
 c4.metric("Daily Average", f"{daily_average:.0f}m")
-c5.metric("Current Streak", f"{current_streak} days")
-c6.metric("Longest Streak", f"{longest_streak} days")
+
+# Conditional Streak Display
+if selected_year == current_year:
+    # Current Year: Show Current Streak + Longest Streak
+    c5.metric("Current Streak", f"{current_streak} days")
+    c6.metric("Longest Streak", f"{longest_streak} days")
+else:
+    # Past Year or All Time: Show Longest Streak only (as Current is irrelevant/zero)
+    c5.metric("Longest Streak", f"{longest_streak} days")
+    c6.empty()
 
 st.markdown("---")
 
@@ -354,7 +384,7 @@ except Exception as e:
 # --- 7. Language Stats ---
 st.subheader("Languages")
 try:
-    fig_lang = viz.plot_language_stats(year=plot_year)
+    fig_lang = viz.plot_language_stats(year=plot_year, external_data=numbers_df)
     if fig_lang:
         st.plotly_chart(fig_lang, use_container_width=True)
     else:
