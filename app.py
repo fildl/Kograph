@@ -66,11 +66,14 @@ def load_data():
         # 2. Enrich with Metadata (Country, Purchase Date)
         combined_data, metadata_df = processor.get_data_with_metadata(metadata_path, current_combined_df=combined_data)
         
-    return kindle_data, combined_data, metadata_df, processor.debug_logs
+    # 3. Load ALL Numbers Data for Acquisition Chart (Standalone)
+    numbers_all_df = processor.get_all_numbers_data(metadata_path) if NUMBERS_AVAILABLE and os.path.exists(metadata_path) else None
+        
+    return kindle_data, combined_data, metadata_df, numbers_all_df
 
 try:
     with st.spinner('Loading reading data...'):
-        kindle_df, combined_df, metadata_raw, debug_logs = load_data()
+        kindle_df, combined_df, metadata_raw, numbers_df = load_data()
         
     # Initialize Visualizers
     viz = Visualizer(kindle_df)
@@ -101,10 +104,7 @@ formats = ['Ebook', 'Paperback', 'Audiobook']
 selected_formats = st.sidebar.multiselect("Format", formats, default=formats)
 
 # Debug Info
-if debug_logs:
-    with st.sidebar.expander("Debug Logs", expanded=True):
-        for log in debug_logs:
-            st.text(log)
+# Debug Info removed
 
 
 
@@ -362,10 +362,9 @@ try:
 except Exception as e:
     st.error(f"Could not render Language Stats: {e}")
 
-# --- 8. Acquisition vs Reading ---
 st.subheader("Acquisition vs Reading")
 try:
-    fig_acq = viz.plot_acquisition_ratio(year=plot_year)
+    fig_acq = viz.plot_acquisition_ratio(year=plot_year, external_data=numbers_df)
     if fig_acq:
         st.plotly_chart(fig_acq, use_container_width=True)
     else:

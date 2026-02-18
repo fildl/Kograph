@@ -1741,93 +1741,146 @@ class Visualizer:
             
             return fig
 
-    def plot_acquisition_ratio(self, year: int = None):
+    def plot_acquisition_ratio(self, year: int = None, external_data: pd.DataFrame = None):
         """
         Donut Chart (Yearly) or Stacked Area (All Time) comparing Books Read vs Books Acquired.
+        If external_data is provided (from Numbers), it is used as the exclusive source.
         """
-        df = self.data.copy()
         
-        # 1. Calculate Books Read (Finished)
-        # Filter for completed books
-        if 'is_completed' in df.columns:
-            read_df = df[df['is_completed'] == True]
+        if external_data is not None and not external_data.empty:
+            # --- USE EXTERNAL DATA SOURCE (NUMBERS) ---
+            df = external_data.copy()
+            
+            # 1. Calculate Books Read (Finished)
+            # Logic: Has a valid end_date
+            if 'end_date' in df.columns:
+                books_read = df.dropna(subset=['end_date']).copy()
+                books_read['date'] = books_read['end_date']
+                books_read['type'] = 'Read'
+            else:
+                books_read = pd.DataFrame(columns=['date', 'type'])
+
+            # 2. Calculate Books Acquired
+            # Logic: Purchase Date -> Start Date (if Sub/Borrowed) -> NaT
+            books_acquired = df.copy()
+            
+            def get_acq_date_ext(row):
+                # Priority 1: Purchase Date
+                if 'purchase_date' in row and pd.notna(row['purchase_date']):
+                    return row['purchase_date']
+                
+                # Priority 2: Start Date if Subscription/Borrowed
+                ownership = str(row.get('ownership', '')).strip().lower()
+                if ownership in ['subscription', 'borrowed']:
+                    if 'start_date' in row and pd.notna(row['start_date']):
+                        return row['start_date']
+                        
+                return pd.NaT
+
+            def get_acq_type_ext(row):
+                ownership = str(row.get('ownership', '')).strip().lower()
+                if ownership in ['subscription', 'borrowed']:
+                    return ownership.title()
+                return 'Purchased'
+
+            books_acquired['date'] = books_acquired.apply(get_acq_date_ext, axis=1)
+            books_acquired['type'] = books_acquired.apply(get_acq_type_ext, axis=1)
+            books_acquired = books_acquired.dropna(subset=['date'])
+
+            # Labels are already 'Purchased', 'Subscription', 'Borrowed' from helper above.
+            # No need to map them to 'Books ...'
+
         else:
-            read_df = df
+            # --- USE INTERNAL DATA SOURCE (KINDLE + MERGED) ---
+            df = self.data.copy()
             
-        # Get unique finished books with date
-        books_read = read_df.groupby('id_book').agg({
-            'start_datetime': 'max',
-            'title': 'first'
-        }).reset_index()
-        books_read.rename(columns={'start_datetime': 'date'}, inplace=True)
-        books_read['type'] = 'Read'
-        
-        # 2. Calculate Books Acquired (Purchased / Subscription / Borrowed)
-        # We need purchase_date and ownership (if available) from df.
-        cols_to_agg = {'title': 'first', 'start_datetime': 'min'}
-        if 'purchase_date' in df.columns:
-            cols_to_agg['purchase_date'] = 'first'
-        if 'ownership' in df.columns:
-            cols_to_agg['ownership'] = 'first'
+            # 1. Calculate Books Read (Finished)
+            # Filter for completed books
+            if 'is_completed' in df.columns:
+                read_df = df[df['is_completed'] == True]
+            else:
+                read_df = df
+                
+            # Get unique finished books with date
+            books_read = read_df.groupby('id_book').agg({
+                'start_datetime': 'max',
+                'title': 'first'
+            }).reset_index()
+            books_read.rename(columns={'start_datetime': 'date'}, inplace=True)
+            books_read['type'] = 'Read'
             
-        books_acquired = df.groupby('id_book').agg(cols_to_agg).reset_index()
-        
-        # Logic to determine acquisition date and type
-        def get_acquisition_date(row):
-            # If explicit purchase date, use it
-            if 'purchase_date' in row and pd.notna(row['purchase_date']):
-                return row['purchase_date']
+            # 2. Calculate Books Acquired (Purchased / Subscription / Borrowed)
+            # We need purchase_date and ownership (if available) from df.
+            cols_to_agg = {'title': 'first', 'start_datetime': 'min'}
+            if 'purchase_date' in df.columns:
+                cols_to_agg['purchase_date'] = 'first'
+            if 'ownership' in df.columns:
+                cols_to_agg['ownership'] = 'first'
+                
+            books_acquired = df.groupby('id_book').agg(cols_to_agg).reset_index()
             
-            # Check ownership case-insensitive
-            ownership = str(row.get('ownership', '')).strip().lower()
-            if 'ownership' in row and ownership in ['subscription', 'borrowed']:
-                return row['start_datetime']
-            return pd.NaT
+            # Logic to determine acquisition date and type
+            def get_acquisition_date(row):
+                # If explicit purchase date, use it
+                if 'purchase_date' in row and pd.notna(row['purchase_date']):
+                    return row['purchase_date']
+                
+                # Check ownership case-insensitive
+                ownership = str(row.get('ownership', '')).strip().lower()
+                if 'ownership' in row and ownership in ['subscription', 'borrowed']:
+                    return row['start_datetime']
+                return pd.NaT
 
-        def get_acquisition_type(row):
-            ownership = str(row.get('ownership', '')).strip().lower()
-            if 'ownership' in row and ownership in ['subscription', 'borrowed']:
-                return ownership.title() # Return Title Case for display
-            # Default to Purchased
-            return 'Purchased'
+            def get_acquisition_type(row):
+                ownership = str(row.get('ownership', '')).strip().lower()
+                if 'ownership' in row and ownership in ['subscription', 'borrowed']:
+                    return ownership.title() # Return Title Case for display
+                # Default to Purchased
+                return 'Purchased'
 
-        books_acquired['date'] = books_acquired.apply(get_acquisition_date, axis=1)
-        books_acquired['type'] = books_acquired.apply(get_acquisition_type, axis=1)
-        
-        # Filter only those with valid date
-        books_acquired = books_acquired.dropna(subset=['date'])
+            books_acquired['date'] = books_acquired.apply(get_acquisition_date, axis=1)
+            books_acquired['type'] = books_acquired.apply(get_acquisition_type, axis=1)
+            
+            # Filter only those with valid date
+            books_acquired = books_acquired.dropna(subset=['date'])
         
         # We need to distinguish "Books Purchased" from "Books Subscription" etc in the chart labels
         # Standardize type names for the legend
-        # "Purchased" -> "Books Purchased"
-        # "Subscription" -> "Books Subscription"
-        # "Borrowed" -> "Books Borrowed"
+        # Standardize type names for the legend
+        # "Purchased" -> "Purchased"
+        # "Subscription" -> "Subscription"
+        # "Borrowed" -> "Borrowed"
         
         type_map = {
-            'Purchased': 'Books Purchased',
-            'Subscription': 'Books Subscription',
-            'Borrowed': 'Books Borrowed'
+            'Purchased': 'Purchased',
+            'Subscription': 'Subscription',
+            'Borrowed': 'Borrowed'
         }
-        books_acquired['type'] = books_acquired['type'].map(type_map).fillna('Books Purchased')
+        books_acquired['type'] = books_acquired['type'].map(type_map).fillna('Purchased')
         
         # 3. Create Visualization
         if year:
             # --- Yearly View: Donut Chart ---
-            read_count = books_read[books_read['date'].dt.year == year].shape[0]
-            acquired_count = books_acquired[books_acquired['date'].dt.year == year].shape[0]
+            # Filter for current year
+            this_year_read = books_read[books_read['date'].dt.year == year]
+            this_year_acquired = books_acquired[books_acquired['date'].dt.year == year]
             
-            read_count = books_read[books_read['date'].dt.year == year].shape[0]
-            acquired_count = books_acquired[books_acquired['date'].dt.year == year].shape[0]
-            
-            # Pie Chart Data
-            
-            if read_count == 0 and acquired_count == 0:
+            if this_year_read.empty and this_year_acquired.empty:
                 return None
                 
-            stats = pd.DataFrame([
-                {'type': 'Books Read', 'count': read_count},
-                {'type': 'Books Purchased', 'count': acquired_count}
-            ])
+            # Group Acquired by Type
+            acquired_stats = this_year_acquired['type'].value_counts().reset_index()
+            acquired_stats.columns = ['type', 'count']
+            
+            # Add Read count
+            read_count = len(this_year_read)
+            stats = pd.concat([
+                pd.DataFrame([{'type': 'Read', 'count': read_count}]),
+                acquired_stats
+            ], ignore_index=True)
+            
+            # Filter out zero counts
+            stats = stats[stats['count'] > 0]
             
             fig = px.pie(
                 stats, 
@@ -1837,10 +1890,10 @@ class Visualizer:
                 hole=0.4,
                 color='type',
                 color_discrete_map={
-                    'Books Read': self.THEME_COLORS['secondary'],     # Green
-                    'Books Purchased': self.THEME_COLORS['accent'],   # Yellow
-                    'Books Subscription': '#8338ec',                  # Purple
-                    'Books Borrowed': '#3a86ff'                       # Blue
+                    'Read': self.THEME_COLORS['secondary'],           # Green
+                    'Purchased': self.THEME_COLORS['accent'],         # Yellow
+                    'Subscription': '#8338ec',                        # Purple
+                    'Borrowed': '#3a86ff'                             # Blue
                 }
             )
             
@@ -1988,6 +2041,61 @@ class Visualizer:
             books_in_year = df[df['year'] == year]['title'].unique()
             df = df[df['title'].isin(books_in_year)]
             
+        # --- EXCLUDE AUDIOBOOKS (User Request) ---
+        if 'format' in df.columns:
+            df = df[df['format'] != 'audiobook']
+            
+        # --- Filter for COMPLETED books only ---
+        # 1. Identify completed books
+        # Logic: 
+        # - Ebook: Sum of pages_read >= 95% of total pages? 
+        #   (Note: 'pages_read' is usually just '1' per row, need to sum)
+        # - Paperback/Numbers: If they exist in Numbers/manual import, they are usually finished books unless explicit start/end
+        
+        # Calculate completion per book title
+        # Group by title to get stats
+        book_completion = df.groupby(['title', 'format']).agg({
+            'pages_read': 'sum',
+            'pages': 'max', # Total pages
+            'duration': 'sum'
+        }).reset_index()
+        
+        # Audiobooks should already have is_completed in df if processed correctly
+        # But let's check if 'is_completed' col exists in df
+        if 'is_completed' in df.columns:
+            # Get max is_completed per book
+            completed_flags = df.groupby('title')['is_completed'].any()
+            book_completion['is_completed_flag'] = book_completion['title'].map(completed_flags).fillna(False)
+        else:
+            book_completion['is_completed_flag'] = False
+            
+        # Calculate for Ebooks/Paperbacks if flag is False
+        # Ratio of Pages Read to Total Pages
+        book_completion['read_ratio'] = book_completion['pages_read'] / book_completion['pages'].replace(0, 1)
+        
+        # Define Completed Logic
+        def check_completed(row):
+            if row['is_completed_flag']: return True
+            
+            fmt = str(row['format']).lower()
+            
+            # Paperbacks (Manual) - assumed done if imported?
+            # Or check pages_read (which is = pages for manual entries)
+            if fmt == 'paperback':
+                return row['read_ratio'] >= 0.95
+                
+            # Ebooks (Kindle)
+            # Threshold 90% to account for front/back matter
+            if fmt == 'ebook':
+                return row['read_ratio'] >= 0.90
+                
+            return False
+
+        book_completion['is_really_completed'] = book_completion.apply(check_completed, axis=1)
+        
+        completed_titles = book_completion[book_completion['is_really_completed']]['title'].unique()
+        df = df[df['title'].isin(completed_titles)]
+
         title = f'Reading Speed: Pages vs. {"Reading Time" if metric == "hours" else "Days to Finish"}'
         
         if df.empty:
@@ -2043,17 +2151,18 @@ class Visualizer:
             color_discrete_map=self.FORMAT_COLORS
         )
         
-        # Trendline for 'hours' (Linear expectation)
-        if metric == 'hours' and len(book_stats) > 1:
+        # Trendline (Linear expectation for both)
+        if len(book_stats) > 1:
              try:
                  # Separate try/except for trendline as it requires statsmodels
                  fig.add_trace(
-                    px.scatter(book_stats, x='pages', y='hours', trendline="ols").data[1]
+                    px.scatter(book_stats, x='pages', y=y_col, trendline="ols").data[1]
                  )
                  fig.data[-1].line.color = self.THEME_COLORS['subtext']
                  fig.data[-1].line.dash = 'dash'
                  fig.data[-1].showlegend = False
-                 fig.data[-1].hovertemplate = "<b>Trend</b><br>%{x} pages<br>%{y:.1f} hours<extra></extra>"
+                 unit_label = "hours" if metric == 'hours' else "days"
+                 fig.data[-1].hovertemplate = f"<b>Trend</b><br>%{{x}} pages<br>%{{y:.1f}} {unit_label}<extra></extra>"
              except Exception:
                  pass # statsmodels might not be installed
 

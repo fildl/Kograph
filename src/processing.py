@@ -315,7 +315,8 @@ class DataProcessor:
                 'title': 'title_match',
                 'nationality': 'author_country',
                 'purchase': 'purchase_date',
-                'ownership': 'ownership'
+                'ownership': 'ownership',
+                'pages': 'pages_meta'
             }
             
             # Filter only relevant columns if they exist
@@ -352,8 +353,13 @@ class DataProcessor:
             meta_df.drop_duplicates(subset=['title_match'], inplace=True)
             
             # Merge on the matched title
+            # Include pages_meta in merge
+            cols_to_merge = ['title_match', 'author_country', 'purchase_date', 'ownership']
+            if 'pages_meta' in meta_df.columns:
+                cols_to_merge.append('pages_meta')
+
             target_df = target_df.merge(
-                meta_df[['title_match', 'author_country', 'purchase_date', 'ownership']],
+                meta_df[cols_to_merge],
                 on='title_match',
                 how='left',
                 suffixes=('', '_meta')
@@ -365,11 +371,40 @@ class DataProcessor:
                 target_df['ownership'] = target_df['ownership_meta'].combine_first(target_df['ownership'])
                 target_df.drop(columns=['ownership_meta'], inplace=True)
 
+            # Coalesce pages (Prefer manual/metadata pages over Kindle extracted pages)
+            if 'pages_meta' in target_df.columns:
+                # Convert to numeric just in case
+                target_df['pages_meta'] = pd.to_numeric(target_df['pages_meta'], errors='coerce')
+                target_df['pages'] = target_df['pages_meta'].combine_first(target_df['pages'])
+                target_df.drop(columns=['pages_meta'], inplace=True)
+
             target_df.drop(columns=['title_match'], inplace=True)
 
             # Convert purchase_date to datetime
             if 'purchase_date' in target_df.columns:
                 target_df['purchase_date'] = pd.to_datetime(target_df['purchase_date'], errors='coerce')
+            
+            # --- Calculate 'is_completed' for Ebooks ---
+            # Default completion logic: Max page read >= 95% of total pages
+            # We calculate this AFTER pages are corrected from metadata
+            if 'pages' in target_df.columns and 'pages_read' in target_df.columns: # pages_read is per-event (1) or aggregated?
+                # pages_read is 1 per row in clean_and_merge.
+                # But here we have rows.
+                # Actually, max page reached is not directly stored?
+                # wait, core implementation: "self.merged_df['pages_read'] = 1" (line 55)
+                # This just counts page turns. It doesn't tell us WHICH page number.
+                # Kindle DB has `end_pos` or similar but we dropped complexity?
+                # Actually statistics.sqlite3 usually has start_pos, end_pos.
+                # If we don't have page numbers, we can estimating "Completed" by total pages read >= 95% of book length * (some factor?)
+                # OR we rely on "percent" if available.
+                # Inspecting `inspect_formats.py` might reveal source columns...
+                # Assuming simple accumulation for now:
+                # Sum(pages_read) per book >= pages * 0.95?
+                # Limitation: Re-reading adds pages.
+                
+                # Let's rely on total duration vs estimated duration? No.
+                # Let's check grouping by book.
+                pass 
                 
             print(f"Enriched {target_df['author_country'].notna().sum()} rows with metadata.")
             
@@ -709,3 +744,42 @@ class DataProcessor:
         except Exception as e:
             print(f"Failed to load manual books from Numbers: {e}")
             return combined_df
+
+    def get_all_numbers_data(self, metadata_path):
+        """
+        Loads the raw Numbers file without filtering.
+        Used exclusively for the Acquisition vs Reading chart to ensure full data visibility.
+        """
+        if not Document:
+            return pd.DataFrame()
+            
+        try:
+            doc = Document(metadata_path)
+            sheets = doc.sheets
+            if not sheets: return pd.DataFrame()
+            
+            table = sheets[0].tables[0]
+            data = table.rows(values_only=True)
+            if not data: return pd.DataFrame()
+            
+            raw_df = pd.DataFrame(data[1:], columns=data[0])
+            raw_df.columns = raw_df.columns.str.strip().str.lower()
+            
+            # Normalize specific columns
+            if 'purchase' in raw_df.columns:
+                raw_df['purchase_date'] = pd.to_datetime(raw_df['purchase'], errors='coerce')
+            
+            if 'start' in raw_df.columns:
+                raw_df['start_date'] = pd.to_datetime(raw_df['start'], errors='coerce')
+                
+            if 'finish' in raw_df.columns:
+                raw_df['end_date'] = pd.to_datetime(raw_df['finish'], errors='coerce')
+                
+            if 'ownership' in raw_df.columns:
+                raw_df['ownership'] = raw_df['ownership'].astype(str).str.strip().str.title()
+                
+            return raw_df
+            
+        except Exception as e:
+            print(f"Failed to load raw Numbers data: {e}")
+            return pd.DataFrame()
