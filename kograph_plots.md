@@ -82,7 +82,7 @@ The dashboard uses a specific color scheme to distinguish formats and data types
 *   🔵 **Aggregated Data**: `#118ab2` (Grouped Stats)
 *   📅 **Reading Calendar**: Gradient from `#2d3436` to `#ef476f`
 *   🔥 **Reading Streaks**: Gradient from `#ffd166` to `#06d6a0`
-*   🌈 **Book Timeline**: Cyclical palette of 15 vibrant colors assigned to each book for visual distinction.
+*   🌈 **Book Timeline**: Cyclical palette of 10 vibrant spectral colors (Red to Purple).
 
 ## 📖 Book Completion Logic
 

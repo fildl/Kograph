@@ -885,9 +885,8 @@ class Visualizer:
 
     # Book colors for consistent visualization
     BOOK_COLORS = [
-        '#ff6b9d', '#feca57', '#48dbfb', '#0abde3', '#ee5a6f',
-        '#ff9ff3', '#54a0ff', '#5f27cd', '#00d2d3', '#ff9f43',
-        '#1dd1a1', '#576574', '#c44569', '#f8b500', '#6c5ce7'
+        '#ff595e', '#ff924c', '#ffca3a', '#c5ca30', '#8ac926',
+        '#36949d', '#1982c4', '#4267ac', '#565aa0', '#6a4c93'
     ]
 
     def _calculate_book_segments(self, df: pd.DataFrame, gap_days=7) -> pd.DataFrame:
