@@ -2209,12 +2209,7 @@ class Visualizer:
             )
         
         # Trendline Removed (Replaced by Average Speed Line)
-                 # unit_label = "hours" if metric == 'hours' else "days"
-                 # fig.data[-1].hovertemplate = f"<b>Trend</b><br>%{{x}} pages<br>%{{y:.1f}} {unit_label}<extra></extra>"
-                 fig.data[-1].hoverinfo = 'skip'
-                 fig.data[-1].hovertemplate = None
-             except Exception:
-                 pass # statsmodels might not be installed
+
 
         fig.update_layout(
             paper_bgcolor=self.THEME_COLORS['paper'],
