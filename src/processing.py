@@ -17,6 +17,7 @@ class DataProcessor:
         self.page_stats = page_stats
         self.books = books
         self.merged_df = None
+        self.merged_df = None
         self.sessions_df = None
 
     def process(self):
@@ -75,6 +76,19 @@ class DataProcessor:
         
         # Apply manual time corrections
         self._apply_time_corrections()
+        
+        # Calculate completion status (Ebook)
+        # 3. Determine if book is completed (95% of pages read)
+        if 'page' in self.merged_df.columns and 'pages' in self.merged_df.columns:
+            # Calculate max page read per book
+            max_pages = self.merged_df.groupby('id_book')['page'].transform('max')
+            # Check if max page is >= 95% of total pages
+            # Handle cases where pages might be 0 or NaN
+            total_pages = self.merged_df['pages'].replace(0, np.nan)
+            self.merged_df['is_completed'] = (max_pages / total_pages) >= 0.95
+            self.merged_df['is_completed'] = self.merged_df['is_completed'].fillna(False)
+        else:
+             self.merged_df['is_completed'] = False
 
     def _apply_time_corrections(self, csv_path='data/time_corrections.csv'):
         """
@@ -197,7 +211,8 @@ class DataProcessor:
                             'month': session_time.month,
                             'day_of_week': session_time.dayofweek,
                             'hour': session_time.hour,
-                            'minute': session_time.minute
+                            'minute': session_time.minute,
+                            'is_completed': True
                         })
                         
                 except Exception as e:
@@ -299,7 +314,8 @@ class DataProcessor:
             rename_map = {
                 'title': 'title_match',
                 'nationality': 'author_country',
-                'purchase': 'purchase_date'
+                'purchase': 'purchase_date',
+                'ownership': 'ownership'
             }
             
             # Filter only relevant columns if they exist
@@ -310,6 +326,10 @@ class DataProcessor:
                 
             meta_df = meta_df[cols_to_keep].copy()
             meta_df.rename(columns=rename_map, inplace=True)
+            
+            # Normalize ownership if present
+            if 'ownership' in meta_df.columns:
+                meta_df['ownership'] = meta_df['ownership'].astype(str).str.strip().str.title()
             
             # Prepare for Fuzzy Matching
             # We want to map Target Title -> Meta Title
@@ -333,13 +353,20 @@ class DataProcessor:
             
             # Merge on the matched title
             target_df = target_df.merge(
-                meta_df[['title_match', 'author_country', 'purchase_date']],
+                meta_df[['title_match', 'author_country', 'purchase_date', 'ownership']],
                 on='title_match',
-                how='left'
+                how='left',
+                suffixes=('', '_meta')
             )
             
+            # Coalesce ownership if collision occurred
+            if 'ownership_meta' in target_df.columns:
+                # Prefer metadata ownership if present, else keep existing
+                target_df['ownership'] = target_df['ownership_meta'].combine_first(target_df['ownership'])
+                target_df.drop(columns=['ownership_meta'], inplace=True)
+
             target_df.drop(columns=['title_match'], inplace=True)
-            
+
             # Convert purchase_date to datetime
             if 'purchase_date' in target_df.columns:
                 target_df['purchase_date'] = pd.to_datetime(target_df['purchase_date'], errors='coerce')
@@ -384,6 +411,7 @@ class DataProcessor:
 
             # Pre-process numeric data
             audio_df['progress_seconds'] = audio_df['progress'].apply(parse_duration)
+            audio_df['total_duration_seconds'] = audio_df['total_duration'].apply(parse_duration)
             
             # Construct full datetime for sorting
             # Combine date and end_time
@@ -406,6 +434,11 @@ class DataProcessor:
             
             # Calculate start_dt
             audio_df['start_dt'] = audio_df['end_dt'] - pd.to_timedelta(audio_df['duration_seconds'], unit='s')
+            
+            # Determine completion per book title (max progress >= 95% total)
+            # Group by title to get max progress
+            max_progress = audio_df.groupby('title')['progress_seconds'].transform('max')
+            audio_df['is_completed'] = (max_progress / audio_df['total_duration_seconds'].replace(0, np.inf)) >= 0.95
             
             new_rows = []
             
@@ -432,7 +465,8 @@ class DataProcessor:
                         'month': row['start_dt'].month,
                         'day_of_week': row['start_dt'].dayofweek,
                         'hour': row['start_dt'].hour,
-                        'minute': row['start_dt'].minute
+                        'minute': row['start_dt'].minute,
+                        'is_completed': row['is_completed']
                     })
 
                 except Exception as e:
@@ -531,8 +565,10 @@ class DataProcessor:
             format_col = raw_df['format'].str.lower()
             manual_formats = ['hardcover', 'paperback', 'ebook']
             
-            # Filter rows with relevant formats
-            relevant_df = raw_df[format_col.isin(manual_formats)].copy()
+            # Filter rows with relevant formats OR valid ownership
+            # relevant_df = raw_df[format_col.isin(manual_formats)].copy()
+            # We need more complex logic, so let's iterate and filter
+            relevant_df = raw_df.copy()
             
             if relevant_df.empty:
                 return combined_df
@@ -543,7 +579,7 @@ class DataProcessor:
                 existing_titles = combined_df['title'].dropna().unique().tolist()
                 
             # Filter for relevant formats
-            target_formats = ['hardcover', 'paperback', 'ebook']
+            target_formats = ['hardcover', 'paperback', 'ebook', 'audiobook']
             
             # Normalize format column in raw_df for filtering
             # We use a temporary column for filtering but keep original logic if needed
@@ -555,8 +591,10 @@ class DataProcessor:
                 'author': 'authors',
                 'pages': 'pages',
                 'start': 'start_date',
+                'start': 'start_date',
                 'finish': 'end_date',
-                'language': 'language'
+                'language': 'language',
+                'ownership': 'ownership'
                 # 'format' is kept as is (but we need to handle it manually)
             }
             
@@ -564,21 +602,35 @@ class DataProcessor:
             
             for idx, row in raw_df.iterrows():
                 try:
-                    # 1. Check Format
+                    # 1. Check Format OR Ownership
                     fmt_raw = str(row.get('format', '')).lower().strip()
-                    if fmt_raw not in target_formats:
+                    ownership_raw = str(row.get('ownership', '')).strip().title()
+                    
+                    is_valid_format = fmt_raw in target_formats
+                    is_special_ownership = ownership_raw in ['Subscription', 'Borrowed']
+                    
+                    if not (is_valid_format or is_special_ownership):
                         continue
                         
                     # 2. Check Title & Dates
                     title = row.get('title')
-                    if pd.isna(title): continue
+                    if pd.isna(title): continue 
                     
                     start_date = pd.to_datetime(row.get('start'), errors='coerce')
                     end_date = pd.to_datetime(row.get('finish'), errors='coerce')
                     
-                    if pd.isna(start_date) or pd.isna(end_date):
+                    if pd.isna(start_date):
                         continue
-                    if end_date < start_date: continue
+                    
+                    # Allow missing end_date if special ownership (ongoing/acquired but not read)
+                    has_end_date = pd.notna(end_date)
+                    if not has_end_date:
+                        if is_special_ownership:
+                            end_date = start_date # Default to start date for session placement
+                        else:
+                            continue # Regular paper books need end date
+                            
+                    if has_end_date and end_date < start_date: continue
 
                     # 3. Deduplication Logic (Universal)
                     # Check if title already exists in Kindle/Audio data
@@ -598,7 +650,12 @@ class DataProcessor:
                     
                     if fmt_raw in ['hardcover', 'paperback']:
                         app_format = 'paperback'
+                    elif fmt_raw == 'ebook':
+                        app_format = 'ebook'
+                    elif fmt_raw == 'audiobook':
+                         app_format = 'audiobook'
                     else:
+                        # Default if format is missing/invalid but ownership is valid
                         app_format = 'ebook'
 
                     # 6. Create Synthetic Sessions
@@ -632,7 +689,10 @@ class DataProcessor:
                             'month': session_time.month,
                             'day_of_week': session_time.dayofweek,
                             'hour': session_time.hour,
-                            'minute': session_time.minute
+                            'minute': session_time.minute,
+                            'minute': session_time.minute,
+                            'is_completed': True if has_end_date else False,
+                            'ownership': ownership_raw
                         })
                         
                 except Exception as e:

@@ -1286,7 +1286,11 @@ class Visualizer:
         Completion Date = Last date a book was read.
         """
         df = self.data.copy()
-        
+    
+        # Filter for completed books only
+        if 'is_completed' in df.columns:
+            df = df[df['is_completed'] == True]
+    
         # 1. Determine Finish Date and Format for each book
         # Group by book and get the last reading date + format (assuming format constant per book)
         books_finished = df.groupby(['id_book', 'title']).agg({
@@ -1466,10 +1470,18 @@ class Visualizer:
         # --- Subplot 2: Monthly Reading Pattern ---
         if year:
             # Single Year: Absolute Hours per Month by Format
-            monthly_data = daily.groupby(['month', 'format'])['hours'].sum().reset_index()
+            monthly_data = daily.groupby(['month', 'format'])['duration'].sum().reset_index()
+            # Use minutes for formatting
+            monthly_data['minutes'] = monthly_data['duration'] / 60
+            monthly_data['hours'] = monthly_data['duration'] / 3600
+            
+            monthly_data['formatted_time'] = monthly_data['minutes'].apply(
+                lambda x: f"{int(x // 60)}h {int(x % 60)}m"
+            )
+            
             y_col = 'hours'
-            y_label_month = 'Total Hours'
-            hover_template_month = "<b>%{x}</b><br>Format: %{customdata[0]}<br>Total: %{y:.1f} h<extra></extra>"
+            y_label_month = 'Total Time'
+            hover_template_month = "<b>%{x}</b><br>Format: FMT_NAME<br>Total: %{customdata[0]}<extra></extra>"
         else:
             # All Time: Average Hours per Month by Format
             
@@ -1485,11 +1497,18 @@ class Visualizer:
                 return row['hours'] / count if count > 0 else 0
                 
             monthly_sums['avg_hours'] = monthly_sums.apply(normalize_month, axis=1)
+            
+            # Formatted time for Avg
+            monthly_sums['avg_minutes'] = monthly_sums['avg_hours'] * 60
+            monthly_sums['formatted_time'] = monthly_sums['avg_minutes'].apply(
+                lambda x: f"{int(x // 60)}h {int(x % 60)}m"
+            )
+            
             monthly_data = monthly_sums
             
             y_col = 'avg_hours'
-            y_label_month = 'Avg Hours'
-            hover_template_month = "<b>%{x}</b><br>Format: %{customdata[0]}<br>Avg: %{y:.1f} h<extra></extra>"
+            y_label_month = 'Avg Time'
+            hover_template_month = "<b>%{x}</b><br>Format: FMT_NAME<br>Avg: %{customdata[0]}<extra></extra>"
 
         monthly_data['Month'] = monthly_data['month'].apply(lambda x: calendar.month_abbr[x])
 
@@ -1515,7 +1534,7 @@ class Visualizer:
                     y=f_data['avg_minutes'],
                     name=fmt.title(),
                     marker_color=self.FORMAT_COLORS.get(fmt, self.THEME_COLORS['primary']),
-                    hovertemplate="<b>%{x}</b><br>Format: " + fmt.title() + "<br>Avg: %{y:.1f} min<extra></extra>",
+                    hovertemplate="<b>%{x}</b><br>Format: " + fmt.title() + "<br>Avg: %{y:.0f} min<extra></extra>",
                     showlegend=False
                 ),
                 row=1, col=1
@@ -1534,7 +1553,8 @@ class Visualizer:
                     y=m_data[y_col],
                     name=fmt.title(),
                     marker_color=self.FORMAT_COLORS.get(fmt, self.THEME_COLORS['accent']),
-                    hovertemplate=hover_template_month.replace("%{customdata[0]}", fmt.title()),
+                    customdata=m_data[['formatted_time']].values, # Pass formatted time
+                    hovertemplate=hover_template_month.replace("FMT_NAME", fmt.title()),
                     showlegend=True 
                 ),
                 row=1, col=2
@@ -1720,3 +1740,339 @@ class Visualizer:
             )
             
             return fig
+
+    def plot_acquisition_ratio(self, year: int = None):
+        """
+        Donut Chart (Yearly) or Stacked Area (All Time) comparing Books Read vs Books Acquired.
+        """
+        df = self.data.copy()
+        
+        # 1. Calculate Books Read (Finished)
+        # Filter for completed books
+        if 'is_completed' in df.columns:
+            read_df = df[df['is_completed'] == True]
+        else:
+            read_df = df
+            
+        # Get unique finished books with date
+        books_read = read_df.groupby('id_book').agg({
+            'start_datetime': 'max',
+            'title': 'first'
+        }).reset_index()
+        books_read.rename(columns={'start_datetime': 'date'}, inplace=True)
+        books_read['type'] = 'Read'
+        
+        # 2. Calculate Books Acquired (Purchased / Subscription / Borrowed)
+        # We need purchase_date and ownership (if available) from df.
+        cols_to_agg = {'title': 'first', 'start_datetime': 'min'}
+        if 'purchase_date' in df.columns:
+            cols_to_agg['purchase_date'] = 'first'
+        if 'ownership' in df.columns:
+            cols_to_agg['ownership'] = 'first'
+            
+        books_acquired = df.groupby('id_book').agg(cols_to_agg).reset_index()
+        
+        # Logic to determine acquisition date and type
+        def get_acquisition_date(row):
+            # If explicit purchase date, use it
+            if 'purchase_date' in row and pd.notna(row['purchase_date']):
+                return row['purchase_date']
+            
+            # Check ownership case-insensitive
+            ownership = str(row.get('ownership', '')).strip().lower()
+            if 'ownership' in row and ownership in ['subscription', 'borrowed']:
+                return row['start_datetime']
+            return pd.NaT
+
+        def get_acquisition_type(row):
+            ownership = str(row.get('ownership', '')).strip().lower()
+            if 'ownership' in row and ownership in ['subscription', 'borrowed']:
+                return ownership.title() # Return Title Case for display
+            # Default to Purchased
+            return 'Purchased'
+
+        books_acquired['date'] = books_acquired.apply(get_acquisition_date, axis=1)
+        books_acquired['type'] = books_acquired.apply(get_acquisition_type, axis=1)
+        
+        # Filter only those with valid date
+        books_acquired = books_acquired.dropna(subset=['date'])
+        
+        # We need to distinguish "Books Purchased" from "Books Subscription" etc in the chart labels
+        # Standardize type names for the legend
+        # "Purchased" -> "Books Purchased"
+        # "Subscription" -> "Books Subscription"
+        # "Borrowed" -> "Books Borrowed"
+        
+        type_map = {
+            'Purchased': 'Books Purchased',
+            'Subscription': 'Books Subscription',
+            'Borrowed': 'Books Borrowed'
+        }
+        books_acquired['type'] = books_acquired['type'].map(type_map).fillna('Books Purchased')
+        
+        # 3. Create Visualization
+        if year:
+            # --- Yearly View: Donut Chart ---
+            read_count = books_read[books_read['date'].dt.year == year].shape[0]
+            acquired_count = books_acquired[books_acquired['date'].dt.year == year].shape[0]
+            
+            read_count = books_read[books_read['date'].dt.year == year].shape[0]
+            acquired_count = books_acquired[books_acquired['date'].dt.year == year].shape[0]
+            
+            # Pie Chart Data
+            
+            if read_count == 0 and acquired_count == 0:
+                return None
+                
+            stats = pd.DataFrame([
+                {'type': 'Books Read', 'count': read_count},
+                {'type': 'Books Purchased', 'count': acquired_count}
+            ])
+            
+            fig = px.pie(
+                stats, 
+                values='count', 
+                names='type',
+                title=f'Acquisition vs Reading in {year}',
+                hole=0.4,
+                color='type',
+                color_discrete_map={
+                    'Books Read': self.THEME_COLORS['secondary'],     # Green
+                    'Books Purchased': self.THEME_COLORS['accent'],   # Yellow
+                    'Books Subscription': '#8338ec',                  # Purple
+                    'Books Borrowed': '#3a86ff'                       # Blue
+                }
+            )
+            
+            fig.update_layout(
+                paper_bgcolor=self.THEME_COLORS['paper'],
+                plot_bgcolor=self.THEME_COLORS['background'],
+                font_color=self.THEME_COLORS['text'],
+                title_x=0.5,
+                title_xanchor='center',
+                width=self.PLOT_WIDTH,
+                height=500, 
+                margin=dict(t=80, l=50, r=50, b=50),
+                showlegend=True
+            )
+            
+            # Central Text (Ratio) - Removed to match Language Stats style
+            # ratio = (read_count / acquired_count * 100) if acquired_count > 0 else 0
+            
+            # fig.add_annotation(
+            #     text=f"{ratio:.0f}%<br>Read",
+            #     x=0.5, y=0.5,
+            #     font_size=24,
+            #     showarrow=False,
+            #     font_color=self.THEME_COLORS['text']
+            # )
+            
+            fig.update_traces(
+                textinfo='percent+label',
+                textfont_size=14,
+                hovertemplate="<b>%{label}</b><br>Count: <b>%{value}</b><br>Share: <b>%{percent:.1%}</b><extra></extra>",
+                texttemplate="%{percent:.1%} %{label}",
+                marker=dict(line=dict(color=self.THEME_COLORS['background'], width=2))
+            )
+            
+            return fig
+            
+        else:
+            # --- All Time View: 100% Stacked Area ---
+            # Aggregate by Year
+            
+            # Combine datasets for unified processing
+            books_read['year'] = books_read['date'].dt.year
+            books_acquired['year'] = books_acquired['date'].dt.year
+            
+            read_yearly = books_read.groupby('year').size().reset_index(name='count')
+            read_yearly['type'] = 'Books Read'
+            
+            # Group acquired by year AND type
+            books_acquired['year'] = books_acquired['date'].dt.year
+            acquired_yearly = books_acquired.groupby(['year', 'type']).size().reset_index(name='count')
+            
+            combined = pd.concat([read_yearly, acquired_yearly])
+            
+            # Ensure we cover all years range
+            if combined.empty:
+                 return None
+                 
+            min_year = combined['year'].min()
+            max_year = combined['year'].max()
+            
+            if pd.isna(min_year) or pd.isna(max_year):
+                return None
+               
+            # Create full grid of Year x Type
+            all_years = range(int(min_year), int(max_year) + 1)
+            all_types = combined['type'].unique()
+            
+            import itertools
+            grid = pd.DataFrame(list(itertools.product(all_years, all_types)), columns=['year', 'type'])
+            
+            # Merge actual data into grid
+            final_df = grid.merge(combined, on=['year', 'type'], how='left').fillna({'count': 0})
+            final_df['year_date'] = pd.to_datetime(final_df['year'], format='%Y')
+
+            # Create Stacked Area (100% normalized to show ratio evolution)
+            # User asked for "Area for All Years", usually implies stacked volume, 
+            # BUT "Same style as language" which is 100% stacked.
+            # "Rapporto tra libri comprati... e letti" -> Ratio. 
+            # So 100% Stacked Area is best to visualize the ratio.
+            
+            fig = px.area(
+                final_df, 
+                x='year_date', 
+                y='count', 
+                color='type',
+                groupnorm='percent', # 100% Stacked
+                title='Acquisition vs reading Ratio Over Time',
+                labels={'count': 'Books', 'year_date': 'Year', 'type': 'Category'},
+                color_discrete_map={
+                    'Books Read': self.THEME_COLORS['secondary'],
+                    'Books Purchased': self.THEME_COLORS['accent'],
+                    'Books Subscription': '#8338ec',
+                    'Books Borrowed': '#3a86ff'
+                }
+            )
+            
+            fig.update_layout(
+                paper_bgcolor=self.THEME_COLORS['paper'],
+                plot_bgcolor=self.THEME_COLORS['background'],
+                font_color=self.THEME_COLORS['text'],
+                title_x=0.5,
+                title_xanchor='center',
+                width=self.PLOT_WIDTH,
+                height=self.PLOT_HEIGHT,
+                margin=dict(t=80, l=50, r=50, b=50),
+                yaxis=dict(
+                    ticksuffix='%', 
+                    range=[0, 100],
+                    gridcolor=self.THEME_COLORS['grid'],
+                    title="Share of Activity"
+                ),
+                xaxis=dict(
+                    gridcolor=self.THEME_COLORS['grid'],
+                    title=None
+                ),
+                hovermode='x unified'
+            )
+            
+            fig.update_traces(
+                line=dict(width=0),
+                hovertemplate="<b>%{y}</b> books<extra></extra>",
+                hoverlabel=dict(bgcolor="black")
+            )
+            
+            return fig
+
+    def plot_reading_speed_scatter(self, year: int = None, metric: str = 'hours'):
+        """
+        Scatter plot of Pages vs. Reading Time.
+        metric: 'hours' (Reading Time) or 'days' (Days to Finish)
+        """
+        df = self.data.copy()
+        
+        # Filter logic based on metric
+        if metric == 'hours':
+            # Exclude Paperback
+            if 'format' in df.columns:
+                df = df[df['format'] != 'paperback']
+            # Exclude Manual Ebooks (Numbers)
+            if 'data_source' in df.columns:
+                df = df[~((df['format'] == 'ebook') & (df['data_source'] == 'numbers'))]
+                
+        if year:
+            # Filter for books that have at least some activity in this year
+            books_in_year = df[df['year'] == year]['title'].unique()
+            df = df[df['title'].isin(books_in_year)]
+            
+        title = f'Reading Speed: Pages vs. {"Reading Time" if metric == "hours" else "Days to Finish"}'
+        
+        if df.empty:
+            return None
+
+        # Group by Book
+        # We need: Title, Total Pages (Metadata), Format, Total Duration, Start Date, End Date, Authors
+        # Using Book ID is safer but let's stick to title for grouping to align with other plots
+        
+        book_stats = df.groupby(['title', 'format', 'pages', 'authors']).agg({
+            'duration': 'sum',
+            'date': ['min', 'max']
+        }).reset_index()
+        
+        # Flatten columns
+        book_stats.columns = ['title', 'format', 'pages', 'authors', 'total_duration_sec', 'start_date', 'end_date']
+        
+        # Calculate Metrics
+        book_stats['hours'] = book_stats['total_duration_sec'] / 3600
+        book_stats['days'] = (pd.to_datetime(book_stats['end_date']) - pd.to_datetime(book_stats['start_date'])).dt.days + 1
+        
+        # Filter out books with 0 pages (Audiobooks often have 0 unless set)
+        book_stats = book_stats[book_stats['pages'] > 0]
+        
+        # Filter noise
+        book_stats = book_stats[book_stats['pages'] > 20] 
+        book_stats = book_stats[book_stats['hours'] > 1]
+        
+        if book_stats.empty:
+            return None
+            
+        y_col = 'hours' if metric == 'hours' else 'days'
+        y_label = 'Reading Time (Hours)' if metric == 'hours' else 'Days to Finish'
+        
+        # Tooltip formatting
+        book_stats['speed_label'] = book_stats.apply(
+            lambda x: f"{x['pages'] / x['hours']:.1f} pages/hr" if metric == 'hours' and x['hours'] > 0 else 
+                      f"{x['pages'] / x['days']:.1f} pages/day" if x['days'] > 0 else "N/A",
+            axis=1
+        )
+        
+        # Truncate titles for hover if needed, but hover handles long text okay usually.
+        
+        fig = px.scatter(
+            book_stats,
+            x='pages',
+            y=y_col,
+            color='format',
+            title=title,
+            labels={'pages': 'Total Pages', y_col: y_label, 'format': 'Format'},
+            hover_name='title',
+            custom_data=['speed_label', 'authors'],
+            color_discrete_map=self.FORMAT_COLORS
+        )
+        
+        # Trendline for 'hours' (Linear expectation)
+        if metric == 'hours' and len(book_stats) > 1:
+             try:
+                 # Separate try/except for trendline as it requires statsmodels
+                 fig.add_trace(
+                    px.scatter(book_stats, x='pages', y='hours', trendline="ols").data[1]
+                 )
+                 fig.data[-1].line.color = self.THEME_COLORS['subtext']
+                 fig.data[-1].line.dash = 'dash'
+                 fig.data[-1].showlegend = False
+                 fig.data[-1].hovertemplate = "<b>Trend</b><br>%{x} pages<br>%{y:.1f} hours<extra></extra>"
+             except Exception:
+                 pass # statsmodels might not be installed
+
+        fig.update_layout(
+            paper_bgcolor=self.THEME_COLORS['paper'],
+            plot_bgcolor=self.THEME_COLORS['background'],
+            font_color=self.THEME_COLORS['text'],
+            width=self.PLOT_WIDTH,
+            height=self.PLOT_HEIGHT,
+            margin=dict(t=80, l=50, r=50, b=50),
+            title_x=0.5,
+            xaxis=dict(gridcolor=self.THEME_COLORS['grid'], title='Book Length (Pages)'),
+            yaxis=dict(gridcolor=self.THEME_COLORS['grid'], title=y_label),
+            showlegend=True
+        )
+        
+        fig.update_traces(
+            marker=dict(size=12, line=dict(width=1, color=self.THEME_COLORS['background'])),
+            hovertemplate="<b>%{hovertext}</b><br><i>%{customdata[1]}</i><br><br>Pages: %{x}<br>" + y_label + ": %{y:.1f}<br>Speed: %{customdata[0]}<extra></extra>"
+        )
+        
+        return fig

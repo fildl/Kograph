@@ -1,5 +1,4 @@
 # 📊 Kograph Dashboard - Plot Inventory
-
 This document lists all available plots in the Kograph dashboard, detailing their visibility conditions and the types of reading data included.
 
 | Plot Name | Function Name | Visibility Condition | Supported Formats | Notes |
@@ -14,21 +13,25 @@ This document lists all available plots in the Kograph dashboard, detailing thei
 | **Streak Histogram** | `plot_streaks` | Always Visible | Ebook, Audiobook | Distribution of reading streak lengths. **Excludes Paperback and Manual Ebooks**. |
 | **Streak Calendar** | `plot_streak_calendar` | **Specific Year Only** | Ebook, Audiobook | 3x4 Grid visualizing daily streak status. **Excludes Paperback and Manual Ebooks**. |
 | **Books Completed** | `plot_books_completed` | Always Visible | Ebook, Paperback, Audiobook | Count of books finished, aggregated by Month (Yearly) or Quarter (All Time). |
-| **Language Stats** | `plot_language_stats` | Always Visible | Ebook, Paperback, Audiobook | Donut Chart (Yearly) or Stacked Area (All Time) based on book metadata. |
+| **Language Stats** | `plot_language_stats` | Always Visible | Ebook, Paperback, Audiobook | Donut Chart (Yearly) or Stacked Area (All Time) based on books read. |
+| **Acquisition Ratio** | `plot_acquisition_ratio` | Always Visible | Ebook, Paperback, Audiobook | **Donut** (Yearly) or **100% Stacked Area** (All Time). Compares **Read** vs **Purchased**, **Subscription**, and **Borrowed**. Logic: Read $\ge$ 95%. |
 | **Cumulative Pages** | `plot_cumulative_pages` | Always Visible | Ebook, Paperback, Audiobook | Stacked area chart of total pages read. Audiobooks are converted (1 min = 1 page). |
+| **Reading Speed** | `plot_reading_speed_scatter` | Always Visible | Ebook, Paperback, Audiobook | Scatter Plot of Pages vs. Time. Metric toggle: **Hours** (Actual) or **Days**. |
 
 ## 🎨 Color Palette
-
 The dashboard uses a specific color scheme to distinguish formats and data types:
 
 *   🔴 **Ebook**: `#ef476f` (Primary)
 *   🟢 **Audiobook**: `#06d6a0` (Secondary)
 *   🟡 **Paperback**: `#ffd166` (Accent)
 *   🔵 **Aggregated Data**: `#118ab2` (Grouped Stats)
+*   📅 **Reading Calendar**: Gradient from `#2d3436` to `#ef476f`
+*   🔥 **Reading Streaks**: Gradient from `#ffd166` to `#06d6a0`
 
-## ⚠️ Missing or Hidden Plots
+## 📖 Book Completion Logic
+A book is considered **"Completed"** based on the following criteria:
+*   **Ebook (Kindle)**: Max page read is $\ge$ 95% of total pages.
+*   **Audiobook**: Max progress time is $\ge$ 95% of total duration.
+*   **Paperback/Manual**: If a "Finish Date" is present in the import file.
 
-The following plots are referenced in `app.py` but appear to be missing or undefined in `src/visuals.py`, so they are currently not displayed:
 
-*   `plot_country_distribution` (Library Insights)
-*   `plot_purchase_timeline` (Library Insights)

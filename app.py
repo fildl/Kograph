@@ -66,11 +66,11 @@ def load_data():
         # 2. Enrich with Metadata (Country, Purchase Date)
         combined_data, metadata_df = processor.get_data_with_metadata(metadata_path, current_combined_df=combined_data)
         
-    return kindle_data, combined_data, metadata_df
+    return kindle_data, combined_data, metadata_df, processor.debug_logs
 
 try:
     with st.spinner('Loading reading data...'):
-        kindle_df, combined_df, metadata_raw = load_data()
+        kindle_df, combined_df, metadata_raw, debug_logs = load_data()
         
     # Initialize Visualizers
     viz = Visualizer(kindle_df)
@@ -99,6 +99,14 @@ selected_year = st.sidebar.selectbox("Select Year", years, index=default_index)
 # 2. Format Filter
 formats = ['Ebook', 'Paperback', 'Audiobook']
 selected_formats = st.sidebar.multiselect("Format", formats, default=formats)
+
+# Debug Info
+if debug_logs:
+    with st.sidebar.expander("Debug Logs", expanded=True):
+        for log in debug_logs:
+            st.text(log)
+
+
 
 # --- Filter Data ---
 filtered_df = kindle_df.copy()
@@ -143,19 +151,13 @@ filter_status += f" • **Formats:** {fmt_status}"
 
 st.markdown(f"Displaying data for: {filter_status}")
 
-# --- Metrics Row ---
-col1, col2, col3, col4 = st.columns(4)
+# --- Metrics Calculations ---
+total_duration_seconds = filtered_combined['duration'].sum()
+hours = int(total_duration_seconds // 3600)
+minutes = int((total_duration_seconds % 3600) // 60)
+total_time_str = f"{hours}h {minutes}m"
 
-total_hours = filtered_combined['duration'].sum() / 3600
 books_read = filtered_combined['id_book'].nunique()
-# Estimate pages (simple heuristic or from data if available, falling back to books)
-# For now, let's show sessions count
-total_sessions = len(filtered_combined)
-
-# Streak calculations
-streaks = viz._calculate_streaks(filtered_combined)
-longest_streak = max(streaks) if streaks else 0
-current_streak = streaks[-1] if streaks else 0
 
 # Daily Average Calculation (Minutes)
 total_minutes = filtered_combined['duration'].sum() / 60
@@ -164,15 +166,6 @@ if not filtered_combined.empty:
     max_date = filtered_combined['date'].max()
     
     if selected_year != "All Time":
-        # For a specific year, use 365/366 days if the year is over, or days so far if current
-        # Actually simplest is just max - min + 1 of the specific filtered data?
-        # If I filter 2024, and have data from Jan 1 to Dec 31, it's 366.
-        # If I filter 2024, and have data only from Feb 1 to Feb 5, it's 5 days.
-        # "Daily Average" usually implies "Average over the whole period".
-        # Let's use the full year days if "All Time" is NOT selected to represent "Yearly Pace"?
-        # Or just (max-min) which represents "Active Period Average".
-        # User request "daily average" usually implies "How much I read on average".
-        # Using (max-min) is safer.
         days_span = (max_date - min_date).days + 1
     else:
         days_span = (max_date - min_date).days + 1
@@ -181,17 +174,15 @@ else:
 
 daily_average = total_minutes / days_span if days_span > 0 else 0
 
-# Create two rows of metrics
-c1, c2 = st.columns(2)
-c1.metric("Total Hours", f"{total_hours:.1f}h")
-c2.metric("Books Read", f"{books_read}")
+# Streak calculations
+streaks = viz._calculate_streaks(filtered_combined)
+longest_streak = max(streaks) if streaks else 0
+current_streak = streaks[-1] if streaks else 0
 
-c4, c5, c6 = st.columns(3)
-c4.metric("Daily Average", f"{daily_average:.0f}m")
-c5.metric("Longest Streak", f"{longest_streak} days")
-c6.metric("Current Streak", f"{current_streak} days")
+# Purchased Count Calculation
+purchased_count = 0
+purchased_label = "Purchased"
 
-# --- Books Purchased Metric ---
 if metadata_raw is not None and 'purchase_date' in metadata_raw.columns:
     # Use the RAW metadata for purchase counts
     purchase_df = metadata_raw
@@ -199,23 +190,33 @@ if metadata_raw is not None and 'purchase_date' in metadata_raw.columns:
     if selected_year != "All Time":
         y = int(selected_year)
         purchased_count = purchase_df[purchase_df['purchase_date'].dt.year == y].shape[0]
-        label = f"Purchased in {selected_year}"
+        purchased_label = f"Purchased in {selected_year}"
     else:
         # Only count items that HAVE a purchase date
         purchased_count = purchase_df['purchase_date'].notna().sum()
-        label = "Total Library (Purchased)"
+        purchased_label = "Total Library (Purchased)"
         
-    st.metric(label, f"{purchased_count}")
 elif 'purchase_date' in filtered_combined.columns:
-    # Fallback to matched data if raw metadata unavailable (shouldn't happen if NUMBERS_AVAILABLE)
+    # Fallback to matched data
     if selected_year != "All Time":
         purchased_count = filtered_combined[filtered_combined['purchase_date'].dt.year == int(selected_year)]['title'].nunique()
-        label = f"Purchased in {selected_year} (Read)"
+        purchased_label = f"Purchased in {selected_year} (Read)"
     else:
         purchased_count = filtered_combined.loc[filtered_combined['purchase_date'].notna(), 'title'].nunique()
-        label = "Total Purchased (Read)"
-        
-    st.metric(label, f"{purchased_count}")
+        purchased_label = "Total Purchased (Read)"
+
+# --- Metrics Display ---
+# Row 1: Volume & Inventory
+c1, c2, c3 = st.columns(3)
+c1.metric("Books Read", f"{books_read}")
+c2.metric(purchased_label, f"{purchased_count}")
+c3.metric("Total Time", total_time_str)
+
+# Row 2: Habits & Streaks
+c4, c5, c6 = st.columns(3)
+c4.metric("Daily Average", f"{daily_average:.0f}m")
+c5.metric("Current Streak", f"{current_streak} days")
+c6.metric("Longest Streak", f"{longest_streak} days")
 
 st.markdown("---")
 
@@ -289,6 +290,26 @@ try:
 except Exception as e:
     st.error(f"Could not render Reading Patterns: {e}")
 
+# --- 4b. Reading Speed (Scatter) ---
+st.subheader("Reading Speed")
+speed_metric_options = {'Reading Time': 'hours', 'Days to Finish': 'days'}
+selected_speed_metric_label = st.radio(
+    "Select Metric:", 
+    list(speed_metric_options.keys()), 
+    horizontal=True,
+    label_visibility="collapsed" # title serves as label
+)
+selected_speed_metric = speed_metric_options[selected_speed_metric_label]
+
+try:
+    fig_speed = viz.plot_reading_speed_scatter(year=plot_year, metric=selected_speed_metric)
+    if fig_speed:
+        st.plotly_chart(fig_speed, use_container_width=True)
+    else:
+        st.info("No reading speed data available.")
+except Exception as e:
+    st.error(f"Could not render Reading Speed: {e}")
+
 # --- 5. Reading Streaks ---
 st.subheader("Reading Streaks")
 # --- 5b. Streak Histogram (Distribution) ---
@@ -341,7 +362,18 @@ try:
 except Exception as e:
     st.error(f"Could not render Language Stats: {e}")
 
-# --- 8. Cumulative Pages ---
+# --- 8. Acquisition vs Reading ---
+st.subheader("Acquisition vs Reading")
+try:
+    fig_acq = viz.plot_acquisition_ratio(year=plot_year)
+    if fig_acq:
+        st.plotly_chart(fig_acq, use_container_width=True)
+    else:
+        st.info("No acquisition data available.")
+except Exception as e:
+    st.error(f"Could not render Acquisition Ratio: {e}")
+
+# --- 9. Cumulative Pages ---
 st.subheader("Cumulative Pages")
 try:
     fig_pages = viz.plot_cumulative_pages(year=plot_year)
@@ -351,32 +383,4 @@ try:
         st.info("No page data available (Audiobooks may not have page counts).")
 except Exception as e:
     st.error(f"Could not render Cumulative Pages: {e}")
-# --- 8. Library Insights (Optional) ---
-# Only show if relevant metadata exists
-try:
-    if 'author_country' in filtered_combined.columns or 'purchase_date' in filtered_combined.columns:
-        st.subheader("Library Insights")
-        
-        col_lib1, col_lib2 = st.columns(2)
-        
-        with col_lib1:
-            try:
-                fig_country = viz.plot_country_distribution(year=plot_year)
-                if fig_country:
-                    st.plotly_chart(fig_country, use_container_width=True)
-                else:
-                     pass 
-            except Exception as e:
-                st.e(f"Error rendering Country Dist: {e}")
-                
-        with col_lib2:
-            try:
-                fig_purchase = viz.plot_purchase_timeline(year=plot_year)
-                if fig_purchase:
-                    st.plotly_chart(fig_purchase, use_container_width=True)
-                else:
-                    pass
-            except Exception as e:
-                st.error(f"Error rendering Purchase Timeline: {e}")
-except Exception as e:
-    pass
+
