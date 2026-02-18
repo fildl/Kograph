@@ -667,6 +667,11 @@ class DataProcessor:
                             
                     if has_end_date and end_date < start_date: continue
 
+                    # Filter: Exclude books finished on or before 2019-12-31
+                    cutoff_date = pd.Timestamp('2019-12-31')
+                    if has_end_date and end_date <= cutoff_date:
+                        continue
+
                     # 3. Deduplication Logic (Universal)
                     # Check if title already exists in Kindle/Audio data
                     # If so, we assume the DB version is the one we want to keep (e.g. read on Kindle)
@@ -778,6 +783,11 @@ class DataProcessor:
             if 'ownership' in raw_df.columns:
                 raw_df['ownership'] = raw_df['ownership'].astype(str).str.strip().str.title()
                 
+            # Filter: Exclude books finished on or before 2019-12-31
+            if 'end_date' in raw_df.columns:
+                cutoff_date = pd.Timestamp('2019-12-31')
+                raw_df = raw_df[~(raw_df['end_date'] <= cutoff_date)]
+            
             return raw_df
             
         except Exception as e:

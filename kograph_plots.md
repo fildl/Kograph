@@ -69,8 +69,8 @@ This document lists all available plots in the Kograph dashboard, detailing thei
 
 *   **Reading Speed** (`plot_reading_speed_scatter`)
     *   **Visibility**: Always Visible
-    *   **Formats**: Ebook, Paperback (Excludes Audiobook)
-    *   **Description**: Scatter Plot of Pages vs. Time. Metric toggle: **Hours** (Actual Reading Time, excludes Paperback/Manual Ebooks) or **Days** (Days to Finish).
+    *   **Formats**: Ebook, Paperback, Audiobook (Days metric only)
+    *   **Description**: Scatter Plot of Time vs. Pages. Includes a reference line for Average Speed. Metric toggle: **Hours** (Actual Reading Time, excludes Paperback/Manual Ebooks/Audiobooks) or **Days** (Days to Finish, includes Audiobooks).
 
 ## 🎨 Color Palette
 

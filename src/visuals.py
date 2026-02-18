@@ -2051,8 +2051,9 @@ class Visualizer:
             books_in_year = df[df['year'] == year]['title'].unique()
             df = df[df['title'].isin(books_in_year)]
             
-        # --- EXCLUDE AUDIOBOOKS (User Request) ---
-        if 'format' in df.columns:
+        # --- EXCLUDE AUDIOBOOKS ---
+        # Exclude for 'hours' metric (Read Speed), but keep for 'days' (Days to Finish)
+        if 'format' in df.columns and metric == 'hours':
             df = df[df['format'] != 'audiobook']
             
         # --- Filter for COMPLETED books only ---
@@ -2079,6 +2080,17 @@ class Visualizer:
         else:
             book_completion['is_completed_flag'] = False
             
+        # Fix Audiobook Data for completion check
+        mask_audio = (book_completion['format'] == 'audiobook')
+        if mask_audio.any():
+            # Estimate pages from duration if missing (1 min = 1 page)
+            zero_pages = mask_audio & (book_completion['pages'] <= 0)
+            if zero_pages.any():
+                book_completion.loc[zero_pages, 'pages'] = book_completion.loc[zero_pages, 'duration'] / 60
+            
+            # Set pages_read from duration
+            book_completion.loc[mask_audio, 'pages_read'] = book_completion.loc[mask_audio, 'duration'] / 60
+
         # Calculate for Ebooks/Paperbacks if flag is False
         # Ratio of Pages Read to Total Pages
         book_completion['read_ratio'] = book_completion['pages_read'] / book_completion['pages'].replace(0, 1)
@@ -2098,6 +2110,10 @@ class Visualizer:
             # Threshold 90% to account for front/back matter
             if fmt == 'ebook':
                 return row['read_ratio'] >= 0.90
+
+            # Audiobooks
+            if fmt == 'audiobook':
+                return row['read_ratio'] >= 0.95
                 
             return False
 
@@ -2115,13 +2131,19 @@ class Visualizer:
         # We need: Title, Total Pages (Metadata), Format, Total Duration, Start Date, End Date, Authors
         # Using Book ID is safer but let's stick to title for grouping to align with other plots
         
-        book_stats = df.groupby(['title', 'format', 'pages', 'authors']).agg({
+        book_stats = df.groupby(['title', 'format', 'authors']).agg({
+            'pages': 'max',
             'duration': 'sum',
             'date': ['min', 'max']
         }).reset_index()
         
         # Flatten columns
-        book_stats.columns = ['title', 'format', 'pages', 'authors', 'total_duration_sec', 'start_date', 'end_date']
+        book_stats.columns = ['title', 'format', 'authors', 'pages', 'total_duration_sec', 'start_date', 'end_date']
+
+        # Fix Pages for Audiobooks (if 0, estimate from duration)
+        mask_audio_stats = (book_stats['format'] == 'audiobook') & (book_stats['pages'] <= 0)
+        if mask_audio_stats.any():
+            book_stats.loc[mask_audio_stats, 'pages'] = book_stats.loc[mask_audio_stats, 'total_duration_sec'] / 60
         
         # Calculate Metrics
         book_stats['hours'] = book_stats['total_duration_sec'] / 3600
@@ -2137,8 +2159,18 @@ class Visualizer:
         if book_stats.empty:
             return None
             
-        y_col = 'hours' if metric == 'hours' else 'days'
-        y_label = 'Reading Time (Hours)' if metric == 'hours' else 'Days to Finish'
+        if book_stats.empty:
+            return None
+            
+        x_col = 'hours' if metric == 'hours' else 'days' # X is now Time
+        x_label = 'Reading Time (Hours)' if metric == 'hours' else 'Days to Finish'
+        
+        # Calculate GLOBAL Average Speed (Total Pages / Total Time)
+        total_pages = book_stats['pages'].sum()
+        total_time = book_stats[x_col].sum()
+        avg_speed = total_pages / total_time if total_time > 0 else 0
+        
+        avg_label = f"{avg_speed:.1f} pages/hr" if metric == 'hours' else f"{avg_speed:.1f} pages/day"
         
         # Tooltip formatting
         book_stats['speed_label'] = book_stats.apply(
@@ -2147,30 +2179,36 @@ class Visualizer:
             axis=1
         )
         
-        # Truncate titles for hover if needed, but hover handles long text okay usually.
-        
         fig = px.scatter(
             book_stats,
-            x='pages',
-            y=y_col,
+            x=x_col, # Time on X
+            y='pages', # Pages on Y
             color='format',
             title=title,
-            labels={'pages': 'Total Pages', y_col: y_label, 'format': 'Format'},
+            labels={'pages': 'Total Pages', x_col: x_label, 'format': 'Format'},
             hover_name='title',
             custom_data=['speed_label', 'authors'],
             color_discrete_map=self.FORMAT_COLORS
         )
         
-        # Trendline (Linear expectation for both)
-        if len(book_stats) > 1:
-             try:
-                 # Separate try/except for trendline as it requires statsmodels
-                 fig.add_trace(
-                    px.scatter(book_stats, x='pages', y=y_col, trendline="ols").data[1]
-                 )
-                 fig.data[-1].line.color = self.THEME_COLORS['subtext']
-                 fig.data[-1].line.dash = 'dash'
-                 fig.data[-1].showlegend = False
+        # Add AVERAGE SPEED Reference Line (Through Origin)
+        # Line equation: y = avg_speed * x
+        if total_time > 0:
+            max_x = book_stats[x_col].max()
+            max_y_expected = max_x * avg_speed
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=[0, max_x],
+                    y=[0, max_y_expected],
+                    mode='lines',
+                    line=dict(color=self.THEME_COLORS['subtext'], width=2, dash='dash'),
+                    name=f'Avg: {avg_label}',
+                    hoverinfo='skip'
+                )
+            )
+        
+        # Trendline Removed (Replaced by Average Speed Line)
                  # unit_label = "hours" if metric == 'hours' else "days"
                  # fig.data[-1].hovertemplate = f"<b>Trend</b><br>%{{x}} pages<br>%{{y:.1f}} {unit_label}<extra></extra>"
                  fig.data[-1].hoverinfo = 'skip'
@@ -2186,14 +2224,14 @@ class Visualizer:
             height=self.PLOT_HEIGHT,
             margin=dict(t=80, l=50, r=50, b=50),
             title_x=0.5,
-            xaxis=dict(gridcolor=self.THEME_COLORS['grid'], title='Book Length (Pages)'),
-            yaxis=dict(gridcolor=self.THEME_COLORS['grid'], title=y_label),
+            xaxis=dict(gridcolor=self.THEME_COLORS['grid'], title=x_label, rangemode='tozero'),
+            yaxis=dict(gridcolor=self.THEME_COLORS['grid'], title='Book Length (Pages)', rangemode='tozero'),
             showlegend=True
         )
         
         fig.update_traces(
             marker=dict(size=12, line=dict(width=1, color=self.THEME_COLORS['background'])),
-            hovertemplate="<b>%{hovertext}</b><br><i>%{customdata[1]}</i><br><br>Pages: %{x}<br>" + y_label + ": %{y:.1f}<br>Speed: %{customdata[0]}<extra></extra>"
+            hovertemplate="<b>%{hovertext}</b><br><i>%{customdata[1]}</i><br><br>" + x_label + ": %{x:.1f}<br>Pages: %{y}<br>Speed: %{customdata[0]}<extra></extra>"
         )
         
         return fig
